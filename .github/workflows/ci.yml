@@ -38,9 +38,16 @@ jobs:
           awk "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==2" codef > /tmp/osa2.applescript
           [ -s /tmp/osa1.applescript ] || { echo "第一段 heredoc 提取为空"; exit 1; }
           [ -s /tmp/osa2.applescript ] || { echo "第二段 heredoc 提取为空"; exit 1; }
+          # osacompile 在编译期就要解析 tell 目标应用的术语，CI runner 无 VSCode
+          # 会报 Can't get application id "com.microsoft.VSCode" (-1728)。
+          # 将 tell 目标替换为系统自带的 Finder 再编译：只验语法、不改语法结构
+          # （VSCode 无 AppleScript 专有字典，块内 activate 为通用术语）。
+          sed 's/application id "com\.microsoft\.VSCode"/application id "com.apple.finder"/' /tmp/osa2.applescript > /tmp/osa2-syntaxcheck.applescript
+          grep -q 'com\.microsoft\.VSCode' /tmp/osa2-syntaxcheck.applescript \
+            && { echo "tell 目标替换失败，仍残留 VSCode 引用"; exit 1; } || true
           osacompile -o /tmp/osa1.scpt /tmp/osa1.applescript
-          osacompile -o /tmp/osa2.scpt /tmp/osa2.applescript
-          echo "两段 AppleScript 编译通过"
+          osacompile -o /tmp/osa2.scpt /tmp/osa2-syntaxcheck.applescript
+          echo "两段 AppleScript 编译通过（tell 目标已替换为 Finder 以适配无 VSCode 环境）"
 
       - name: regression guards (historical bugs must stay fixed)
         run: |
