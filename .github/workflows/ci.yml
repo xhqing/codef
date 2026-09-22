@@ -1,0 +1,89 @@
+# CI —— 回归防护网（每次 PR、每次 main push 都跑）
+# 项目为 bash + AppleScript 的 macOS 工具，须跑 macOS runner（osacompile / osascript 仅 macOS 有）。
+# 检查项：
+#   1. bash 语法检查
+#   2. shellcheck 静态检查（warning 档起报，当前基线零报警）
+#   3. AppleScript 语法：提取脚本内两段 heredoc 分别 osacompile 编译（不执行）
+#   4. 回归断言：历史踩过的坑以结构断言锁死（见各条注释）
+#   5. 版本一致性：脚本头部 version 行与仓库根 VERSION 一致
+#   6. 参数错误路径：不存在目录应非零退出并报错到 stderr
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash syntax
+        run: bash -n codef
+
+      - name: shellcheck
+        run: |
+          command -v shellcheck >/dev/null 2>&1 || brew install -q shellcheck
+          shellcheck -S warning codef
+
+      - name: AppleScript syntax (heredoc extraction + osacompile)
+        run: |
+          awk "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==1" codef > /tmp/osa1.applescript
+          awk "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==2" codef > /tmp/osa2.applescript
+          [ -s /tmp/osa1.applescript ] || { echo "第一段 heredoc 提取为空"; exit 1; }
+          [ -s /tmp/osa2.applescript ] || { echo "第二段 heredoc 提取为空"; exit 1; }
+          osacompile -o /tmp/osa1.scpt /tmp/osa1.applescript
+          osacompile -o /tmp/osa2.scpt /tmp/osa2.applescript
+          echo "两段 AppleScript 编译通过"
+
+      - name: regression guards (historical bugs must stay fixed)
+        run: |
+          fail=0
+          # 防 -609 回归：activate 必须按 bundle id 定位，且不得存在按应用名的写法
+          # （按名解析会命中 LaunchServices 失效缓存；code 请求后立即 activate 会被断连，重试逻辑必须保留）
+          grep -q 'tell application id "com.microsoft.VSCode" to activate' codef \
+            || { echo "回归: activate 未按 bundle id 定位（-609 修复被移除）"; fail=1; }
+          grep -q 'tell application "Visual Studio Code"' codef \
+            && { echo "回归: 存在按应用名发事件的写法（-609 修复被移除）"; fail=1; }
+          grep -q 'repeat 6 times' codef \
+            || { echo "回归: activate 重试循环缺失（-609 修复被移除）"; fail=1; }
+          # 防 -1708 回归：tell 块内调用脚本级 handler 必须带 my 前缀，
+          # 否则消息被路由给 tell 目标（Code 进程 / System Events）报 doesn't understand
+          mc=$(grep -c 'my matchesTarget' codef || true)
+          mr=$(grep -c 'my raiseViaMenu' codef || true)
+          [ "$mc" -ge 2 ] || { echo "回归: my matchesTarget 仅 ${mc} 处（期望 ≥2，-1708 修复被移除）"; fail=1; }
+          [ "$mr" -ge 1 ] || { echo "回归: my raiseViaMenu 仅 ${mr} 处（期望 ≥1，-1708 修复被移除）"; fail=1; }
+          if grep -nE '^[[:space:]]*(if +|set +[a-zA-Z]+ +to +)(matchesTarget|raiseViaMenu)\(' codef; then
+            echo "回归: tell 块内存在裸 handler 调用（缺 my 前缀，-1708 修复被移除）"
+            fail=1
+          fi
+          exit $fail
+
+      - name: version consistency (VERSION is the single source of truth)
+        run: |
+          ver_file=$(cat VERSION)
+          ver_script=$(sed -n '2p' codef | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ "$ver_file" != "$ver_script" ]; then
+            echo "版本不一致: VERSION=${ver_file} / 脚本头部=${ver_script}"
+            exit 1
+          fi
+          echo "版本一致: ${ver_file}"
+
+      - name: error paths (bad directory argument)
+        run: |
+          set +e
+          out=$(./codef /nonexistent-codef-ci-path 2>&1)
+          st=$?
+          set -e
+          if [ "$st" -eq 0 ]; then
+            echo "错误路径失效: 不存在的目录应非零退出，实际 exit 0"
+            exit 1
+          fi
+          echo "$out" | grep -q "目录不存在" || { echo "错误路径失效: 未输出『目录不存在』报错"; exit 1; }
+          echo "错误路径正常: exit ${st}, 报错: ${out}"
