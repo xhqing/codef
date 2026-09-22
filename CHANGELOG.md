@@ -7,10 +7,12 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **修复 logo 副标题文字被裁切**：`assets/logo.svg` 原副标题 `CLI · Fullscreen VSCode, Target Window On Top`（45 字符、`font-size=22`、起点 `x=230`）实测渲染宽度约 545px，230+545 超出 640 画布宽、文字被直接裁切（渲染像素检测证实文字像素顶到画布右边缘）。改为 `Fullscreen VSCode · On Top`（25 字符），实测文字包围盒回到安全区内、右边距留足。根因与长效防线见 CapabilityManagerAgent CHANGELOG 同日条目（icon-design skill 新增文字边界硬校验 + 校验脚本）。
+- **修复 activate 撞车 -609**：`code <dir>` 打开请求刚发出时 VSCode（Electron）主线程忙，紧随的 Apple Event 会被断连（`Connection is invalid (-609)`；实测 code 后立即 activate 稳定复现、延迟后成功）。修复：activate 改为按 bundle id（`com.microsoft.VSCode`，不受按名解析缓存影响）+ 重试循环（最多 6 次、每次间隔 0.25 秒），不用固定 sleep（时序不可靠，初版已知教训）。
+- **修复 AppleScript handler 路由 -1708**：在 `tell process "Code"` / `tell application "System Events"` 块内调用脚本级 handler（`matchesTarget` / `raiseViaMenu`），消息会被优先路由给 tell 目标，报 `doesn't understand the message (-1708)`。修复：三处调用加 `my` 前缀强制路由回脚本自身。此为 0.1.0 初版潜伏 bug，此前无环境跑到过该分支。
 
 ### Project
 
-- **TODO 新增 T2**：生产环境跑 `codef` 报错 `osascript is not allowed to send keystrokes (1002)`（终端 App 辅助功能权限缺失 / 失效，System Events 发键被拒），记入 🔴 待办待排查修复；T1（Visitors 徽章脚本清单）为此前已有待办。
+- **TODO T2 完成闭环**：辅助功能授权失效（ad-hoc 签名导致）已修复——`tccutil reset` 清残留 + 手动重新授权，最小复现与完整 `codef` 链路均验证通过；根治方案（自签证书进 CI）已建 xhqing/ghostty#2 跟踪。
 
 ## [0.1.0] - 2026-09-22
 
