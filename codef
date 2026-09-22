@@ -1,0 +1,179 @@
+#!/bin/bash
+# version: 0.1.0（与仓库根 VERSION 保持一致，安装到生产目录后可凭此行核对版本）
+# codef —— 全屏打开 VSCode，并确保刚打开的那个窗口位于最上层。
+# 用法：codef [路径]   （默认当前目录；等于 code . + 自动全屏 + 目标窗口置顶）
+#
+# 背景：`code <dir>` 打开后 macOS 只保证 VSCode 应用被激活，不保证哪个窗口
+# 在最上层——多窗口时置顶的可能不是本次要打开的那个，且窗口创建有延迟，
+# 固定 sleep 再按键的时序不可靠。
+#
+# 实现：
+#   1. 记录打开前 VSCode 的窗口标题列表
+#   2. code <dir> 打开（新开窗口或复用已有窗口由 VSCode 决定）
+#   3. 轮询等目标窗口出现（标题以目录名开头；优先锁定「本次新增」的窗口）
+#   4. 点击菜单栏「Window / 窗口」菜单里的目标窗口项把它带到最前
+#      （系统级聚焦语义，目标窗口在其他 Space 或已全屏时也能切换过去）；
+#      菜单找不到时退回 AXRaise
+#   5. 目标窗口未全屏时才模拟 Ctrl+Cmd+F（避免把已全屏的窗口退出全屏）
+#
+# 前提：运行它的终端 App 需在「系统设置 → 隐私与安全性 → 辅助功能」中授权，
+# 否则窗口枚举 / 模拟按键会被系统拒绝（not allowed assistive access）。
+# 调试：CODEF_DEBUG=1 codef 会输出各阶段状态。
+
+set -u
+
+dir="${1:-.}"
+abs_dir=$(cd -- "$dir" 2>/dev/null && pwd -P) || { echo "codef: 目录不存在：$dir" >&2; exit 1; }
+command -v code >/dev/null 2>&1 || { echo "codef: 找不到 code 命令" >&2; exit 1; }
+target_name=$(basename "$abs_dir")
+debug() { [ "${CODEF_DEBUG:-}" = "1" ] && echo "codef: $*" >&2 || true; }
+
+# 1) 记录打开前的窗口标题（VSCode 未运行时为空）
+pre_names=$(osascript <<'OSA' 2>/dev/null || true
+tell application "System Events"
+	if not (exists process "Code") then return ""
+	tell process "Code"
+		set out to ""
+		repeat with n in (get name of every window)
+			set out to out & (n as text) & linefeed
+		end repeat
+		return out
+	end tell
+end tell
+OSA
+)
+debug "目标目录: $abs_dir (匹配名: $target_name)"
+debug "打开前窗口: [$(echo "$pre_names" | tr '\n' '|')]"
+
+# 2) 打开 VSCode
+code "$abs_dir"
+
+# 3~5) 等目标窗口出现 → 置顶 → 视需要全屏
+result=$(osascript - "$target_name" "$pre_names" <<'OSA'
+
+-- 窗口标题是否属于目标目录：
+-- VSCode 窗口标题格式为「目录名」或「目录名 — 文件名」（em dash 分隔），
+-- 用「等于目录名 / 目录名加分隔符开头」三档匹配，避免目录名互为前缀时误匹配
+on matchesTarget(n, targetName)
+	set t to n as text
+	if t is targetName then return true
+	if t starts with (targetName & " —") then return true -- em dash
+	if t starts with (targetName & " –") then return true -- en dash 兜底
+	if t starts with (targetName & " - ") then return true -- 连字符兜底
+	return false
+end matchesTarget
+
+-- 通过点击菜单栏「Window / 窗口」菜单里的窗口项聚焦目标窗口
+-- （系统级聚焦语义，目标窗口在其他 Space 或已全屏时也能切换过去）
+on raiseViaMenu(targetName)
+	tell application "System Events"
+		tell process "Code"
+			repeat with menuName in {"Window", "窗口"}
+				try
+					set targetItem to (first menu item of menu 1 of menu bar item (menuName as text) of menu bar 1 whose name starts with targetName)
+					click targetItem
+					return true
+				end try
+			end repeat
+		end tell
+	end tell
+	return false
+end raiseViaMenu
+
+on run argv
+	set targetName to item 1 of argv
+	set preText to item 2 of argv
+
+	tell application "Visual Studio Code" to activate
+
+	tell application "System Events"
+		-- 冷启动场景：等 VSCode 进程出现
+		repeat 40 times
+			if exists process "Code" then exit repeat
+			delay 0.25
+		end repeat
+		if not (exists process "Code") then return "no-process"
+
+		tell process "Code"
+			set frontmost to true
+
+			-- 轮询等目标窗口出现（新窗口创建有延迟，冷启动更慢）
+			set targetWin to missing value
+			repeat 40 times
+				set winNames to (get name of every window)
+
+				-- 优先锁定「本次打开后新增」的匹配窗口
+				repeat with n in winNames
+					set t to n as text
+					if matchesTarget(t, targetName) then
+						set isNew to true
+						repeat with p in (paragraphs of preText)
+							if (p as text) is t then
+								set isNew to false
+								exit repeat
+							end if
+						end repeat
+						if isNew then
+							set targetWin to t
+							exit repeat
+						end if
+					end if
+				end repeat
+
+				-- 兜底：第一个标题匹配的窗口（VSCode 复用已有窗口的场景）
+				if targetWin is missing value then
+					repeat with n in winNames
+						if matchesTarget(n as text, targetName) then
+							set targetWin to (n as text)
+							exit repeat
+						end if
+					end repeat
+				end if
+
+				if targetWin is not missing value then exit repeat
+				delay 0.25
+			end repeat
+			if targetWin is missing value then return "no-window"
+		end tell
+
+		-- 置顶：先走菜单（菜单项生成有延迟，重试几轮），失败退回 AXRaise
+		set raised to false
+		repeat 3 times
+			if raised then exit repeat
+			set raised to raiseViaMenu(targetName)
+			if not raised then delay 0.3
+		end repeat
+		if not raised then
+			try
+				perform action "AXRaise" of window targetWin of process "Code"
+				set raised to true
+			end try
+		end if
+		if not raised then return "no-raise"
+
+		delay 0.4 -- 等窗口聚焦 / Space 切换动画
+
+		-- 未全屏才发全屏键（对已全屏窗口重复 Ctrl+Cmd+F 会退出全屏）
+		set isFS to false
+		try
+			set isFS to value of attribute "AXFullScreen" of window targetWin of process "Code"
+		end try
+		if not isFS then
+			keystroke "f" using {command down, control down}
+		end if
+		return "ok:" & isFS
+	end tell
+end run
+OSA
+)
+status="${result%%:*}"
+debug "结果: $result"
+
+case "$status" in
+  ok) ;;
+  no-process) echo "codef: 等待 VSCode 进程启动超时（10 秒），本次未置顶/全屏" >&2 ;;
+  no-window)  echo "codef: 未找到标题匹配「$target_name」的窗口（VSCode 窗口标题格式可能变了）" >&2 ;;
+  no-raise)   echo "codef: 找到目标窗口但置顶失败（菜单与 AXRaise 均未成功）" >&2 ;;
+  *)          echo "codef: 未预期的结果：$result" >&2 ;;
+esac
+exit 0

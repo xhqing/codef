@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+settings.local.json
+tmp/
+docs/
+artifacts/
+node_modules/
+.DS_Store
+__pycache__/
