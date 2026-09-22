@@ -84,7 +84,15 @@ on run argv
 	set targetName to item 1 of argv
 	set preText to item 2 of argv
 
-	tell application "Visual Studio Code" to activate
+	-- activate 带重试：code 命令的打开请求刚发出时 VSCode 主线程忙于处理，
+	-- 紧随的 Apple Event 会被断连（-609 Connection is invalid），重试至成功
+	repeat 6 times
+		try
+			tell application id "com.microsoft.VSCode" to activate
+			exit repeat
+		end try
+		delay 0.25
+	end repeat
 
 	tell application "System Events"
 		-- 冷启动场景：等 VSCode 进程出现
@@ -105,7 +113,7 @@ on run argv
 				-- 优先锁定「本次打开后新增」的匹配窗口
 				repeat with n in winNames
 					set t to n as text
-					if matchesTarget(t, targetName) then
+					if my matchesTarget(t, targetName) then
 						set isNew to true
 						repeat with p in (paragraphs of preText)
 							if (p as text) is t then
@@ -123,7 +131,7 @@ on run argv
 				-- 兜底：第一个标题匹配的窗口（VSCode 复用已有窗口的场景）
 				if targetWin is missing value then
 					repeat with n in winNames
-						if matchesTarget(n as text, targetName) then
+						if my matchesTarget(n as text, targetName) then
 							set targetWin to (n as text)
 							exit repeat
 						end if
@@ -140,7 +148,7 @@ on run argv
 		set raised to false
 		repeat 3 times
 			if raised then exit repeat
-			set raised to raiseViaMenu(targetName)
+			set raised to my raiseViaMenu(targetName)
 			if not raised then delay 0.3
 		end repeat
 		if not raised then
