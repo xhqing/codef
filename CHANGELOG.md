@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-02
+
 ### Fixed
 
 - **修复 logo 副标题文字被裁切**：`assets/logo.svg` 原副标题 `CLI · Fullscreen VSCode, Target Window On Top`（45 字符、`font-size=22`、起点 `x=230`）实测渲染宽度约 545px，230+545 超出 640 画布宽、文字被直接裁切（渲染像素检测证实文字像素顶到画布右边缘）。改为 `Fullscreen VSCode · On Top`（25 字符），实测文字包围盒回到安全区内、右边距留足。根因与长效防线见 CapabilityManagerAgent CHANGELOG 同日条目（icon-design skill 新增文字边界硬校验 + 校验脚本）。
