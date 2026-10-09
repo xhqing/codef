@@ -2,7 +2,7 @@
   <img src="assets/logo.svg" alt="codef" width="640">
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE.md)
-  [![Version](https://img.shields.io/badge/Version-0.1.1-blue)](CHANGELOG.md)
+  [![Version](https://img.shields.io/badge/Version-0.1.2-blue)](CHANGELOG.md)
   [![Type](https://img.shields.io/badge/Type-CLI-4F46E5)](#)
   [![Visitors](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/xhqing/xhqing/main/traffic/badges/codef.json)](https://github.com/xhqing)
 
