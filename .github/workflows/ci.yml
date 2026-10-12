@@ -34,20 +34,23 @@ jobs:
 
       - name: AppleScript syntax (heredoc extraction + osacompile)
         run: |
-          awk "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==1" codef > /tmp/osa1.applescript
-          awk "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==2" codef > /tmp/osa2.applescript
-          [ -s /tmp/osa1.applescript ] || { echo "第一段 heredoc 提取为空"; exit 1; }
-          [ -s /tmp/osa2.applescript ] || { echo "第二段 heredoc 提取为空"; exit 1; }
-          # osacompile 在编译期就要解析 tell 目标应用的术语，CI runner 无 VSCode
-          # 会报 Can't get application id "com.microsoft.VSCode" (-1728)。
-          # 将 tell 目标替换为系统自带的 Finder 再编译：只验语法、不改语法结构
-          # （VSCode 无 AppleScript 专有字典，块内 activate 为通用术语）。
-          sed 's/application id "com\.microsoft\.VSCode"/application id "com.apple.finder"/' /tmp/osa2.applescript > /tmp/osa2-syntaxcheck.applescript
-          grep -q 'com\.microsoft\.VSCode' /tmp/osa2-syntaxcheck.applescript \
-            && { echo "tell 目标替换失败，仍残留 VSCode 引用"; exit 1; } || true
-          osacompile -o /tmp/osa1.scpt /tmp/osa1.applescript
-          osacompile -o /tmp/osa2.scpt /tmp/osa2-syntaxcheck.applescript
-          echo "两段 AppleScript 编译通过（tell 目标已替换为 Finder 以适配无 VSCode 环境）"
+          total=$(grep -c "<<'OSA'" codef)
+          [ "$total" -ge 1 ] || { echo "未找到 heredoc 块"; exit 1; }
+          for i in $(seq 1 "$total"); do
+            awk -v target="$i" "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==target" codef > "/tmp/osa$i.applescript"
+            [ -s "/tmp/osa$i.applescript" ] || { echo "第 $i 段 heredoc 提取为空"; exit 1; }
+            # osacompile 在编译期就要解析 tell 目标应用的术语，CI runner 无 VSCode
+            # 会报 Can't get application id "com.microsoft.VSCode" (-1728)。
+            # 将 tell 目标替换为系统自带的 Finder 再编译：只验语法、不改语法结构
+            # （VSCode 无 AppleScript 专有字典，块内 activate 为通用术语）。
+            sed 's/application id "com\.microsoft\.VSCode"/application id "com.apple.finder"/' "/tmp/osa$i.applescript" > "/tmp/osa$i-syntax.applescript"
+            if grep -q 'com\.microsoft\.VSCode' "/tmp/osa$i-syntax.applescript"; then
+              echo "tell 目标替换失败，仍残留 VSCode 引用（第 $i 段）"
+              exit 1
+            fi
+            osacompile -o "/tmp/osa$i.scpt" "/tmp/osa$i-syntax.applescript"
+          done
+          echo "${total} 段 AppleScript 编译通过（tell 目标已替换为 Finder 以适配无 VSCode 环境）"
 
       - name: regression guards (historical bugs must stay fixed)
         run: |
@@ -87,10 +90,17 @@ jobs:
           set +e
           out=$(./codef /nonexistent-codef-ci-path 2>&1)
           st=$?
+          out_left=$(./codef left /nonexistent-codef-ci-path 2>&1)
+          st_left=$?
           set -e
           if [ "$st" -eq 0 ]; then
             echo "错误路径失效: 不存在的目录应非零退出，实际 exit 0"
             exit 1
           fi
           echo "$out" | grep -q "目录不存在" || { echo "错误路径失效: 未输出『目录不存在』报错"; exit 1; }
-          echo "错误路径正常: exit ${st}, 报错: ${out}"
+          if [ "$st_left" -eq 0 ]; then
+            echo "错误路径失效: codef left 不存在的目录应非零退出，实际 exit 0"
+            exit 1
+          fi
+          echo "$out_left" | grep -q "目录不存在" || { echo "错误路径失效: codef left 未输出『目录不存在』报错"; exit 1; }
+          echo "错误路径正常: codef exit ${st} / codef left exit ${st_left}"

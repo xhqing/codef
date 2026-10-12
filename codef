@@ -1,7 +1,9 @@
 #!/bin/bash
 # version: 0.1.3（与仓库根 VERSION 保持一致，安装到生产目录后可凭此行核对版本）
-# codef —— 全屏打开 VSCode，并确保刚打开的那个窗口位于最上层。
-# 用法：codef [路径]   （默认当前目录；等于 code . + 自动全屏 + 目标窗口置顶）
+# codef —— 全屏（或左半屏并排）打开 VSCode，并确保刚打开的那个窗口位于最上层。
+# 用法：codef [路径]        （默认当前目录；等于 code . + 自动全屏 + 目标窗口置顶）
+#       codef left [路径]   （VSCode 占屏幕左半、当前终端窗口占屏幕右半，并排铺满）
+#                            `left` 是关键字——要打开名为 left 的目录请写 `codef ./left`
 #
 # 背景：`code <dir>` 打开后 macOS 只保证 VSCode 应用被激活，不保证哪个窗口
 # 在最上层——多窗口时置顶的可能不是本次要打开的那个，且窗口创建有延迟，
@@ -16,17 +18,97 @@
 #      菜单找不到时退回 AXRaise
 #   5. 目标窗口未全屏时才模拟 Ctrl+Cmd+F（避免把已全屏的窗口退出全屏）
 #
+# left 模式在上述流程前额外把「当前终端窗口」摆到右半屏：
+#   0. 取主屏可视区（NSScreen.visibleFrame）→ 找终端 App（TERM_PROGRAM 映射，
+#      默认 Ghostty）的聚焦窗口（在打开 VSCode 前抓取，此时它就是用户刚操作的
+#      终端窗口）→ 若在原生全屏先退出 → AX 摆到右半屏；
+#   然后走 1~4（目标窗口置顶）；第 5 步改为：若在原生全屏先退出，再 AX 摆到左半屏。
+#
 # 前提：运行它的终端 App 需在「系统设置 → 隐私与安全性 → 辅助功能」中授权，
 # 否则窗口枚举 / 模拟按键会被系统拒绝（not allowed assistive access）。
 # 调试：CODEF_DEBUG=1 codef 会输出各阶段状态。
 
 set -u
 
+# 参数：codef [路径] | codef left [路径]
+# `left` 作为首参是模式关键字（目录名恰好叫 left 时用 `codef ./left`）。
+mode="full"
+if [ "${1:-}" = "left" ]; then
+  mode="left"
+  shift
+fi
 dir="${1:-.}"
 abs_dir=$(cd -- "$dir" 2>/dev/null && pwd -P) || { echo "codef: 目录不存在：$dir" >&2; exit 1; }
 command -v code >/dev/null 2>&1 || { echo "codef: 找不到 code 命令" >&2; exit 1; }
 target_name=$(basename "$abs_dir")
 debug() { [ "${CODEF_DEBUG:-}" = "1" ] && echo "codef: $*" >&2 || true; }
+
+# 0) left 模式：先取屏幕可视区，把「当前终端窗口」摆到右半屏
+lx=0; ly=0; lw=0; lh=0
+if [ "$mode" = "left" ]; then
+  frame=$(osascript -l JavaScript -e 'ObjC.import("AppKit"); var f=$.NSScreen.mainScreen.visibleFrame; var g=$.NSScreen.mainScreen.frame; Math.round(f.origin.x)+","+Math.round(g.size.height-f.origin.y-f.size.height)+","+Math.round(f.size.width)+","+Math.round(f.size.height)' 2>/dev/null || true)
+  term_app="Ghostty"
+  case "${TERM_PROGRAM:-}" in
+    ghostty|Ghostty) term_app="Ghostty" ;;
+    tmux)            term_app="Ghostty" ;;  # tmux 客户端所在宿主终端（用户主终端为 Ghostty）
+    Apple_Terminal)  term_app="Terminal" ;;
+    iTerm.app)       term_app="iTerm2" ;;
+    WezTerm)         term_app="WezTerm" ;;
+  esac
+  if [ -n "$frame" ]; then
+    IFS=, read -r sx sy sw sh <<<"$frame"
+    half_w=$(( sw / 2 ))
+    lx=$sx; ly=$sy; lw=$half_w; lh=$sh
+    rx=$(( sx + half_w )); rw=$(( sw - half_w ))
+    debug "屏幕可视区: ${frame}；左半: ${lx},${ly},${lw},${lh}；右半: ${rx},${sy},${rw},${sh}"
+    term_status=$(osascript - "$term_app" "$rx" "$sy" "$rw" "$sh" <<'OSA' 2>/dev/null || echo "osa-error"
+-- left 模式：把当前终端 App 的聚焦窗口摆到右半屏。
+-- 终端窗口 = 执行 codef 的那个窗口：本段在打开 VSCode 之前调用，
+-- 此时该 App 的聚焦窗口就是用户刚操作的终端窗口。
+on run argv
+	set appName to item 1 of argv
+	set px to (item 2 of argv) as integer
+	set py to (item 3 of argv) as integer
+	set pw to (item 4 of argv) as integer
+	set ph to (item 5 of argv) as integer
+
+	tell application "System Events"
+		if not (exists process appName) then return "no-app"
+		tell process appName
+			set w to missing value
+			try
+				set w to value of attribute "AXFocusedWindow"
+			end try
+			if w is missing value then
+				if (count of windows) is 0 then return "no-window"
+				set w to window 1
+			end if
+			-- 原生全屏的窗口不能用 AX 摆位：先退出全屏
+			set isFS to false
+			try
+				set isFS to value of attribute "AXFullScreen" of w
+			end try
+			if isFS then
+				set frontmost to true
+				keystroke "f" using {command down, control down}
+				delay 1.5
+			end if
+			set position of w to {px, py}
+			set size of w to {pw, ph}
+			return "ok"
+		end tell
+	end tell
+end run
+OSA
+)
+    case "$term_status" in
+      ok) debug "终端窗口已摆到右半屏（${term_app}）" ;;
+      *)  echo "codef: 未能在 ${term_app} 中找到终端窗口（${term_status}），left 模式降级为只摆放 VSCode" >&2 ;;
+    esac
+  else
+    echo "codef: 无法获取屏幕可视区，left 模式降级为只摆放 VSCode" >&2
+  fi
+fi
 
 # 1) 记录打开前的窗口标题（VSCode 未运行时为空）
 pre_names=$(osascript <<'OSA' 2>/dev/null || true
@@ -49,7 +131,7 @@ debug "打开前窗口: [$(echo "$pre_names" | tr '\n' '|')]"
 code "$abs_dir"
 
 # 3~5) 等目标窗口出现 → 置顶 → 视需要全屏
-result=$(osascript - "$target_name" "$pre_names" <<'OSA'
+result=$(osascript - "$target_name" "$pre_names" "$mode" "$lx" "$ly" "$lw" "$lh" <<'OSA'
 
 -- 窗口标题是否属于目标目录：
 -- VSCode 窗口标题格式为「目录名」或「目录名 — 文件名」（em dash 分隔），
@@ -83,6 +165,11 @@ end raiseViaMenu
 on run argv
 	set targetName to item 1 of argv
 	set preText to item 2 of argv
+	set modeArg to item 3 of argv
+	set lx to (item 4 of argv) as integer
+	set ly to (item 5 of argv) as integer
+	set lw to (item 6 of argv) as integer
+	set lh to (item 7 of argv) as integer
 
 	-- activate 带重试：code 命令的打开请求刚发出时 VSCode 主线程忙于处理，
 	-- 紧随的 Apple Event 会被断连（-609 Connection is invalid），重试至成功
@@ -161,11 +248,23 @@ on run argv
 
 		delay 0.4 -- 等窗口聚焦 / Space 切换动画
 
-		-- 未全屏才发全屏键（对已全屏窗口重复 Ctrl+Cmd+F 会退出全屏）
 		set isFS to false
 		try
 			set isFS to value of attribute "AXFullScreen" of window targetWin of process "Code"
 		end try
+
+		if modeArg is "left" then
+			-- left 模式：原生全屏先退出（全屏窗口不能用 AX 摆位），再摆到左半屏
+			if isFS then
+				keystroke "f" using {command down, control down}
+				delay 1.5
+			end if
+			set position of window targetWin of process "Code" to {lx, ly}
+			set size of window targetWin of process "Code" to {lw, lh}
+			return "ok:" & isFS
+		end if
+
+		-- 默认模式：未全屏才发全屏键（对已全屏窗口重复 Ctrl+Cmd+F 会退出全屏）
 		if not isFS then
 			keystroke "f" using {command down, control down}
 		end if

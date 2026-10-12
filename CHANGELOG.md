@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [未发布]
+
+### 新增
+
+- **新增 `codef left`：VSCode 左半屏 + 当前终端窗口右半屏并排**（2026-10-12 用户需求，issue #9）。为什么改：用户希望一条命令把 VSCode 与当前终端并排铺满屏幕（原来只有全屏模式）。改了什么：①新增 `left` 关键字参数（`codef left [路径]`；目录名恰好叫 left 时用 `codef ./left`）；②取主屏 `NSScreen.visibleFrame` 精确摆放：终端 App（`TERM_PROGRAM` 映射，默认 Ghostty）的聚焦窗口摆右半屏、VSCode 目标窗口摆左半屏（打开 VSCode 前抓取终端窗口，此时它就是用户刚操作的窗口）；③相关窗口在原生全屏时先退出全屏（原生全屏窗口不能用 AX 摆位）；④终端窗口识别失败时降级为只把 VSCode 放左半屏并告警；默认模式行为不变；⑤CI：AppleScript 语法检查改为循环编译全部 heredoc 块，错误路径补 `codef left` 不存在的目录。
+
 ## [0.1.3] - 2026-10-09
 
 ### Project
