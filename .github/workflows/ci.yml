@@ -73,7 +73,29 @@ jobs:
             echo "回归: tell 块内存在裸 handler 调用（缺 my 前缀，-1708 修复被移除）"
             fail=1
           fi
+          # 防 bash 3.2 吞字节崩溃（2026-10-12 事故）：$var 后紧跟非 ASCII 字节时，
+          # bash 3.2 在 UTF-8 locale 下会把多字节字符吞进变量名（unbound variable）。
+          # 所有后跟非 ASCII 的变量必须写 ${var}。
+          if ! perl -ne 'if (/\$[A-Za-z_][A-Za-z0-9_]*(?=[^\x00-\x7F])/) { print "  行 $.: $_"; $hit=1 } END { exit($hit ? 1 : 0) }' codef; then
+            echo "回归: 存在 \$var 后紧跟非 ASCII 字符的写法（bash 3.2 吞字节风险，请改用 \${var}）"
+            fail=1
+          fi
           exit $fail
+
+      - name: matchesTarget fixtures (VSCode title matching regression)
+        run: |
+          total=$(grep -c "<<'OSA'" codef)
+          vscode_block=""
+          for i in $(seq 1 "$total"); do
+            awk -v target="$i" "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==target" codef > "/tmp/osa$i.applescript"
+            if grep -q '^on matchesTarget' "/tmp/osa$i.applescript"; then vscode_block="/tmp/osa$i.applescript"; fi
+          done
+          [ -n "$vscode_block" ] || { echo "未找到含 matchesTarget 的 AppleScript 块"; exit 1; }
+          awk '/^on cleanSegment/,/^end cleanSegment/' "$vscode_block" > /tmp/matcher-test.applescript
+          awk '/^on matchesTarget/,/^end matchesTarget/' "$vscode_block" >> /tmp/matcher-test.applescript
+          cat test/matches-target.applescript >> /tmp/matcher-test.applescript
+          [ "$(grep -c '^on ' /tmp/matcher-test.applescript)" -ge 3 ] || { echo "处理器拼接失败（期望 cleanSegment / matchesTarget / run 三个）"; exit 1; }
+          osascript /tmp/matcher-test.applescript
 
       - name: version consistency (VERSION is the single source of truth)
         run: |

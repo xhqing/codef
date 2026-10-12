@@ -133,15 +133,50 @@ code "$abs_dir"
 # 3~5) 等目标窗口出现 → 置顶 → 视需要全屏
 result=$(osascript - "$target_name" "$pre_names" "$mode" "$lx" "$ly" "$lw" "$lh" <<'OSA'
 
+-- 去掉段首的脏标记（● / • / *）与首尾空白
+on cleanSegment(t)
+	set out to t as text
+	repeat while (count of out) > 0 and ((character 1 of out) is in {"●", "•", "*"})
+		if (count of out) > 1 then
+			set out to text 2 thru -1 of out
+		else
+			set out to ""
+		end if
+	end repeat
+	repeat while (count of out) > 0 and ((character 1 of out) is space)
+		if (count of out) > 1 then
+			set out to text 2 thru -1 of out
+		else
+			set out to ""
+		end if
+	end repeat
+	repeat while (count of out) > 0 and ((character -1 of out) is space)
+		if (count of out) > 1 then
+			set out to text 1 thru ((count of out) - 1) of out
+		else
+			set out to ""
+		end if
+	end repeat
+	return out
+end cleanSegment
+
 -- 窗口标题是否属于目标目录：
--- VSCode 窗口标题格式为「目录名」或「目录名 — 文件名」（em dash 分隔），
--- 用「等于目录名 / 目录名加分隔符开头」三档匹配，避免目录名互为前缀时误匹配
+-- VSCode 默认 window.title 带活动文件时是「文件名 — 目录名」（文件在前，
+-- 实测用户环境即此形态），复用窗口即为此；纯目录名、脏标记（●）、
+-- em dash / en dash / 连字符分隔等形态都要覆盖。
+-- 实现：按分隔符拆段，逐段去标记去空白后与目录名「精确相等」比较——
+-- 段间精确比较天然避免目录名互为子串的误匹配（2026-10-12 事故修复）。
 on matchesTarget(n, targetName)
-	set t to n as text
+	set t to my cleanSegment(n as text)
 	if t is targetName then return true
-	if t starts with (targetName & " —") then return true -- em dash
-	if t starts with (targetName & " –") then return true -- en dash 兜底
-	if t starts with (targetName & " - ") then return true -- 连字符兜底
+	repeat with sep in {" — ", " – ", " - "}
+		set AppleScript's text item delimiters to (sep as text)
+		set segs to every text item of t
+		set AppleScript's text item delimiters to ""
+		repeat with s in segs
+			if my cleanSegment(s as text) is targetName then return true
+		end repeat
+	end repeat
 	return false
 end matchesTarget
 
@@ -279,7 +314,7 @@ debug "结果: $result"
 case "$status" in
   ok) ;;
   no-process) echo "codef: 等待 VSCode 进程启动超时（10 秒），本次未置顶/全屏" >&2 ;;
-  no-window)  echo "codef: 未找到标题匹配「$target_name」的窗口（VSCode 窗口标题格式可能变了）" >&2 ;;
+  no-window)  echo "codef: 未找到标题匹配「${target_name}」的窗口（VSCode 窗口标题格式可能变了）" >&2 ;;
   no-raise)   echo "codef: 找到目标窗口但置顶失败（菜单与 AXRaise 均未成功）" >&2 ;;
   *)          echo "codef: 未预期的结果：$result" >&2 ;;
 esac

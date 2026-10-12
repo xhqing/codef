@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [未发布]
+
+### Fixed
+
+- **修复 `codef left` 实机崩溃（2026-10-12 事故，issue #12）**：①**bash 3.2 吞字节**——no-window 提示行的 `「$target_name」` 中 `$var` 后紧跟多字节 `」`，bash 3.2 在 UTF-8 locale 下把该字节吞进变量名（`set -u` 下 unbound variable 整脚本退出）→ 改为 `${target_name}`，CI 增加静态断言（`$var` 后跟非 ASCII 即红）；②**窗口标题匹配**——旧逻辑只认「目录名开头」，而 VSCode 默认标题带活动文件时是「文件名 — 目录名」（实测环境即此形态）、窗口复用时恒不匹配 → 改为按分隔符拆段、逐段去脏标记去空白后与目录名**精确比较**（覆盖纯目录 / 文件前 / 文件后 / em dash / en dash / 连字符 / ● 脏标记，且避免目录名互为子串的误匹配），CI 增加 13 条样例断言（`test/matches-target.applescript`）。
+
 ## [0.2.0] - 2026-10-12
 
 ### 新增
