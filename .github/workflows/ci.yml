@@ -3,7 +3,7 @@
 # 检查项：
 #   1. bash 语法检查
 #   2. shellcheck 静态检查（warning 档起报，当前基线零报警）
-#   3. AppleScript 语法：提取脚本内两段 heredoc 分别 osacompile 编译（不执行）
+#   3. AppleScript 语法：提取脚本内各段 AppleScript heredoc 分别 osacompile 编译（不执行）
 #   4. 回归断言：历史踩过的坑以结构断言锁死（见各条注释）
 #   5. 版本一致性：脚本头部 version 行与仓库根 VERSION 一致
 #   6. 参数错误路径：不存在目录应非零退出并报错到 stderr

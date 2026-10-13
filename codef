@@ -1,8 +1,10 @@
 #!/bin/bash
 # version: 0.2.2（与仓库根 VERSION 保持一致，安装到生产目录后可凭此行核对版本）
-# codef —— 全屏（或左半屏并排）打开 VSCode，并确保刚打开的那个窗口位于最上层。
+# codef —— 全屏（或左半屏全屏）打开 VSCode，并确保刚打开的那个窗口位于最上层。
 # 用法：codef [路径]        （默认当前目录；等于 code . + 自动全屏 + 目标窗口置顶）
-#       codef left [路径]   （VSCode 占屏幕左半、当前终端窗口占屏幕右半，并排铺满）
+#       codef left [路径]   （把 VSCode 摆到屏幕左半并进入全屏——等价于窗口菜单的
+#                            「全屏 → 屏幕左侧」；脚本只做这一步，右侧完全交给你
+#                            自己安排；平铺不可用时回退为普通窗口左半屏摆放）
 #                            `left` 是关键字——要打开名为 left 的目录请写 `codef ./left`
 #
 # 背景：`code <dir>` 打开后 macOS 只保证 VSCode 应用被激活，不保证哪个窗口
@@ -18,11 +20,13 @@
 #      菜单找不到时退回 AXRaise
 #   5. 目标窗口未全屏时才模拟 Ctrl+Cmd+F（避免把已全屏的窗口退出全屏）
 #
-# left 模式在上述流程前额外把「当前终端窗口」摆到右半屏：
-#   0. 取主屏可视区（NSScreen.visibleFrame）→ 找终端 App（TERM_PROGRAM 映射，
-#      默认 Ghostty）的聚焦窗口（在打开 VSCode 前抓取，此时它就是用户刚操作的
-#      终端窗口）→ 若在原生全屏先退出 → AX 摆到右半屏；
-#   然后走 1~4（目标窗口置顶）；第 5 步改为：若在原生全屏先退出，再 AX 摆到左半屏。
+# left 模式的完整流程：
+#   0. 取主屏可视区（NSScreen.visibleFrame），供「平铺就绪检测」与「失败回退摆放」用；
+#   然后走 1~4（目标窗口置顶）；第 5 步改为：
+#     若目标窗口已是「左半全屏」→ 视为已就绪，直接成功返回；
+#     否则（独立全屏态先退出全屏）触发 Window → Full Screen Tile → Left of Screen
+#     （子菜单懒加载，需先展开），轮询至窗口进入左半全屏态后结束；
+#     触发失败或未就绪时回退为普通窗口左半屏摆放（保底）。
 #
 # 前提：运行它的终端 App 需在「系统设置 → 隐私与安全性 → 辅助功能」中授权，
 # 否则窗口枚举 / 模拟按键会被系统拒绝（not allowed assistive access）。
@@ -43,70 +47,17 @@ command -v code >/dev/null 2>&1 || { echo "codef: 找不到 code 命令" >&2; ex
 target_name=$(basename "$abs_dir")
 debug() { [ "${CODEF_DEBUG:-}" = "1" ] && echo "codef: $*" >&2 || true; }
 
-# 0) left 模式：先取屏幕可视区，把「当前终端窗口」摆到右半屏
+# 0) left 模式：取主屏可视区（左半屏位置 / 尺寸，用于平铺就绪检测与失败回退摆放）
 lx=0; ly=0; lw=0; lh=0
 if [ "$mode" = "left" ]; then
   frame=$(osascript -l JavaScript -e 'ObjC.import("AppKit"); var f=$.NSScreen.mainScreen.visibleFrame; var g=$.NSScreen.mainScreen.frame; Math.round(f.origin.x)+","+Math.round(g.size.height-f.origin.y-f.size.height)+","+Math.round(f.size.width)+","+Math.round(f.size.height)' 2>/dev/null || true)
-  term_app="Ghostty"
-  case "${TERM_PROGRAM:-}" in
-    ghostty|Ghostty) term_app="Ghostty" ;;
-    tmux)            term_app="Ghostty" ;;  # tmux 客户端所在宿主终端（用户主终端为 Ghostty）
-    Apple_Terminal)  term_app="Terminal" ;;
-    iTerm.app)       term_app="iTerm2" ;;
-    WezTerm)         term_app="WezTerm" ;;
-  esac
   if [ -n "$frame" ]; then
     IFS=, read -r sx sy sw sh <<<"$frame"
     half_w=$(( sw / 2 ))
     lx=$sx; ly=$sy; lw=$half_w; lh=$sh
-    rx=$(( sx + half_w )); rw=$(( sw - half_w ))
-    debug "屏幕可视区: ${frame}；左半: ${lx},${ly},${lw},${lh}；右半: ${rx},${sy},${rw},${sh}"
-    term_status=$(osascript - "$term_app" "$rx" "$sy" "$rw" "$sh" <<'OSA' 2>/dev/null || echo "osa-error"
--- left 模式：把当前终端 App 的聚焦窗口摆到右半屏。
--- 终端窗口 = 执行 codef 的那个窗口：本段在打开 VSCode 之前调用，
--- 此时该 App 的聚焦窗口就是用户刚操作的终端窗口。
-on run argv
-	set appName to item 1 of argv
-	set px to (item 2 of argv) as integer
-	set py to (item 3 of argv) as integer
-	set pw to (item 4 of argv) as integer
-	set ph to (item 5 of argv) as integer
-
-	tell application "System Events"
-		if not (exists process appName) then return "no-app"
-		tell process appName
-			set w to missing value
-			try
-				set w to value of attribute "AXFocusedWindow"
-			end try
-			if w is missing value then
-				if (count of windows) is 0 then return "no-window"
-				set w to window 1
-			end if
-			-- 原生全屏的窗口不能用 AX 摆位：先退出全屏
-			set isFS to false
-			try
-				set isFS to value of attribute "AXFullScreen" of w
-			end try
-			if isFS then
-				set frontmost to true
-				keystroke "f" using {command down, control down}
-				delay 1.5
-			end if
-			set position of w to {px, py}
-			set size of w to {pw, ph}
-			return "ok"
-		end tell
-	end tell
-end run
-OSA
-)
-    case "$term_status" in
-      ok) debug "终端窗口已摆到右半屏（${term_app}）" ;;
-      *)  echo "codef: 未能在 ${term_app} 中找到终端窗口（${term_status}），left 模式降级为只摆放 VSCode" >&2 ;;
-    esac
+    debug "屏幕可视区: ${frame}；左半: ${lx},${ly},${lw},${lh}"
   else
-    echo "codef: 无法获取屏幕可视区，left 模式降级为只摆放 VSCode" >&2
+    echo "codef: 无法获取屏幕可视区（left 模式的就绪检测与失败回退将跳过）" >&2
   fi
 fi
 
@@ -130,7 +81,7 @@ debug "打开前窗口: [$(echo "$pre_names" | tr '\n' '|')]"
 # 2) 打开 VSCode
 code "$abs_dir"
 
-# 3~5) 等目标窗口出现 → 置顶 → 视需要全屏
+# 3~5) 等目标窗口出现 → 置顶 → 默认模式全屏 / left 模式左半全屏序列
 result=$(osascript - "$target_name" "$pre_names" "$mode" "$lx" "$ly" "$lw" "$lh" <<'OSA'
 
 -- 去掉段首的脏标记（● / • / *）与首尾空白
@@ -289,33 +240,167 @@ on run argv
 		end try
 
 		if modeArg is "left" then
-			-- left 模式：原生全屏先退出（全屏窗口不能用 AX 摆位），再摆到左半屏
-			if isFS then
+			-- 把目标窗口摆到左全屏（等价于菜单「全屏 → 屏幕左侧」）；
+			-- 右侧窗口的选择完全交给用户/系统（脚本不代点，2026-10-13 用户决定）
+
+			-- 幂等：目标窗口已是「左半全屏」→ 视为已就绪，直接成功返回
+			-- （lw 为 0 表示屏幕可视区未知，此时仅按全屏态判断）
+			set fs0 to false
+			set x0 to -1
+			set w0 to 0
+			try
+				set fs0 to value of attribute "AXFullScreen" of window targetWin of process "Code"
+				set p0 to position of window targetWin of process "Code"
+				set s0 to size of window targetWin of process "Code"
+				set x0 to item 1 of p0
+				set w0 to item 1 of s0
+			end try
+			if fs0 and (lw is 0 or (x0 ≤ lx + 2 and w0 ≥ lw - 30 and w0 ≤ lw + 30)) then return "splitview-already" & linefeed & targetWin
+
+			-- 其他全屏态（独立全屏）：先退出全屏，从普通窗口开始平铺
+			if fs0 then
 				keystroke "f" using {command down, control down}
-				delay 1.5
+				delay 1.8
 			end if
-			set position of window targetWin of process "Code" to {lx, ly}
-			set size of window targetWin of process "Code" to {lw, lh}
-			return "ok:" & isFS
+
+			-- 触发 Window → Full Screen Tile → Left of Screen
+			-- （Full Screen Tile 子菜单懒加载：必须先 pick 展开再取子项）
+			set triggered to false
+			set triggerErr to ""
+			repeat with menuName in {"Window", "窗口"}
+				if triggered then exit repeat
+				try
+					set wm to menu bar item (menuName as text) of menu bar 1 of process "Code"
+					pick menu item "Full Screen Tile" of menu 1 of wm
+					delay 0.5
+					click menu item "Left of Screen" of menu 1 of menu item "Full Screen Tile" of menu 1 of wm
+					set triggered to true
+				on error e number n
+					set triggerErr to triggerErr & "[" & (menuName as text) & ":" & n & ":" & (e as text) & "]"
+				end try
+			end repeat
+			if not triggered then return "tile-failed: " & triggerErr & linefeed & targetWin
+
+			-- 轮询等就绪（窗口进入左半全屏态），不做固定 sleep
+			repeat 25 times
+				delay 0.1
+				set fsR to false
+				set xR to -1
+				set wR to 0
+				try
+					set fsR to value of attribute "AXFullScreen" of window targetWin of process "Code"
+					set pR to position of window targetWin of process "Code"
+					set sR to size of window targetWin of process "Code"
+					set xR to item 1 of pR
+					set wR to item 1 of sR
+				end try
+				if fsR and (lw is 0 or (xR ≤ lx + 2 and wR ≥ lw - 30 and wR ≤ lw + 30)) then return "tile-ready" & linefeed & targetWin
+			end repeat
+
+			-- 触发成功但未就绪：退全屏复位后报失败（由调用方回退半屏摆放）
+			try
+				if value of attribute "AXFullScreen" of window targetWin of process "Code" then
+					keystroke "f" using {command down, control down}
+					delay 1.5
+				end if
+			end try
+			return "tile-not-ready" & linefeed & targetWin
 		end if
 
 		-- 默认模式：未全屏才发全屏键（对已全屏窗口重复 Ctrl+Cmd+F 会退出全屏）
 		if not isFS then
 			keystroke "f" using {command down, control down}
 		end if
-		return "ok:" & isFS
+		return "ok:" & isFS & linefeed & targetWin
 	end tell
 end run
 OSA
 )
-status="${result%%:*}"
-debug "结果: $result"
+status=$(printf '%s' "$result" | head -1)
+win_name=$(printf '%s' "$result" | tail -n +2 | head -1)
+debug "结果: ${status}${win_name:+ [窗口: ${win_name}]}"
+
+# left 模式平铺失败时收尾：清理全屏态（尽力）+ 回退为普通窗口左半屏摆放（保底）
+left_fallback() {
+  local out
+  out=$(osascript - "$lx" "$ly" "$lw" "$lh" "${win_name:-}" <<'OSA' 2>/dev/null || echo "fallback-error"
+-- 平铺失败收尾：把目标窗口从全屏态退出并摆回左半屏（普通窗口保底）。
+on run argv
+	set lx to (item 1 of argv) as integer
+	set ly to (item 2 of argv) as integer
+	set lw to (item 3 of argv) as integer
+	set lh to (item 4 of argv) as integer
+	set winName to item 5 of argv
+	tell application "System Events"
+		tell process "Code"
+			set frontmost to true
+			delay 0.3
+			set targetWin to missing value
+			try
+				if winName is not "" then set targetWin to window winName
+			end try
+			if targetWin is missing value then
+				repeat with w in windows
+					set s to size of w
+					if (item 1 of s) > 2 then
+						set targetWin to w
+						exit repeat
+					end if
+				end repeat
+			end if
+			if targetWin is missing value then return "no-window"
+			set isFS to false
+			try
+				set isFS to value of attribute "AXFullScreen" of targetWin
+			end try
+			if isFS then
+				keystroke "f" using {command down, control down}
+				delay 1.8
+			end if
+			set position of targetWin to {lx, ly}
+			set size of targetWin to {lw, lh}
+			return "fallback-done"
+		end tell
+	end tell
+end run
+OSA
+)
+  case "$out" in
+    fallback-done) debug "已回退半屏摆放（${target_name}）" ;;
+    no-window)     debug "回退时找不到目标窗口" ;;
+    *)             debug "回退处理异常: ${out}" ;;
+  esac
+}
 
 case "$status" in
-  ok) ;;
+  splitview-already)
+    debug "目标窗口已在左半屏全屏，无需操作"
+    ;;
+  ok:*)
+    : # 默认模式全屏流程完成
+    ;;
+  tile-ready)
+    echo "codef: VSCode 已进入左半屏全屏。"
+    ;;
+  tile-failed*)
+    if [ "$lw" -gt 0 ]; then
+      left_fallback
+      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），已回退为普通窗口左半屏摆放" >&2
+    else
+      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），且无法获取屏幕可视区，未回退摆放" >&2
+    fi
+    ;;
+  tile-not-ready)
+    if [ "$lw" -gt 0 ]; then
+      left_fallback
+      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），已回退为普通窗口左半屏摆放" >&2
+    else
+      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），且无法获取屏幕可视区，未回退摆放" >&2
+    fi
+    ;;
   no-process) echo "codef: 等待 VSCode 进程启动超时（10 秒），本次未置顶/全屏" >&2 ;;
   no-window)  echo "codef: 未找到标题匹配「${target_name}」的窗口（VSCode 窗口标题格式可能变了）" >&2 ;;
   no-raise)   echo "codef: 找到目标窗口但置顶失败（菜单与 AXRaise 均未成功）" >&2 ;;
-  *)          echo "codef: 未预期的结果：$result" >&2 ;;
+  *)          echo "codef: 未预期的结果：${result}" >&2 ;;
 esac
 exit 0
