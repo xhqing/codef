@@ -16,11 +16,11 @@
 ```bash
 codef                     # open the current directory, fullscreen
 codef ~/Developer/blog    # open a given directory, fullscreen
-codef left                # open the current directory on the left half; put this terminal window on the right half
+codef left                # put VSCode on the left half in fullscreen (same as "Full Screen → Left of Screen")
 codef left ~/Developer/blog   # same, for a given directory
 ```
 
-`codef left` puts VSCode on the left half of the screen and the terminal window you ran it from on the right half, side by side (exact placement within the main screen's visible area; a natively fullscreen window is un-fullscreened first). `left` is a keyword — to open a directory literally named `left`, use `codef ./left`.
+`codef left` puts VSCode on the left half of the screen in fullscreen — the same effect as the "Full Screen → Left of Screen" item in the window's green-button menu: VSCode takes the left half, borderless; the right half is yours to fill. A natively fullscreen target window is un-fullscreened first; if window tiling is unavailable, it falls back to plain left-half window placement. `left` is a keyword — to open a directory literally named `left`, use `codef ./left`.
 
 ## Problems it solves
 

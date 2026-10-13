@@ -16,11 +16,11 @@
 ```bash
 codef            # 全屏打开当前目录
 codef ~/Developer/blog    # 全屏打开指定目录
-codef left       # 左半屏打开当前目录，同时把当前终端窗口放到右半屏
+codef left       # 把 VSCode 摆到左半屏全屏（等价：窗口菜单「全屏 → 屏幕左侧」）
 codef left ~/Developer/blog   # 同上，打开指定目录
 ```
 
-`codef left` 把 VSCode 摆到屏幕左半、把执行命令的终端窗口摆到右半，两窗口并排铺满（按主屏可视区精确摆放；相关窗口若在原生全屏会先退出全屏）。`left` 是关键字——要打开名为 `left` 的目录请写 `codef ./left`。
+`codef left` 把 VSCode 摆到屏幕左半并进入全屏——等价于窗口绿色按钮菜单里的「全屏 → 屏幕左侧」：VSCode 无标题栏、独占左半屏；右侧留给你自己安排。目标窗口若在原生全屏会先退出；系统不支持平铺时自动回退为普通窗口左半屏摆放。`left` 是关键字——要打开名为 `left` 的目录请写 `codef ./left`。
 
 ## 解决什么问题
 
