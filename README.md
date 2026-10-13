@@ -1,26 +1,27 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="codef" width="640">
+  <img src="assets/logo.svg" alt="codefs" width="640">
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE.md)
   [![Version](https://img.shields.io/badge/Version-0.3.0-blue)](CHANGELOG.md)
   [![Type](https://img.shields.io/badge/Type-CLI-4F46E5)](#)
-  [![Visitors](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/xhqing/xhqing/main/traffic/badges/codef.json)](https://github.com/xhqing)
+  [![Visitors](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/xhqing/xhqing/main/traffic/badges/codefs.json)](https://github.com/xhqing)
 
   [简体中文](README_cn.md)
 </div>
 
-# codef
+# codefs
 
-`codef` is a tiny macOS terminal tool: **open VSCode fullscreen, with the window you just opened guaranteed to be on top**. It is equivalent to `code <dir>` + auto fullscreen + target window raised.
+`codefs` is a tiny macOS terminal tool: **open VSCode fullscreen, with the window you just opened guaranteed to be on top**. It is equivalent to `code <dir>` + auto fullscreen + target window raised.
 
 ```bash
-codef                     # open the current directory, fullscreen
-codef ~/Developer/blog    # open a given directory, fullscreen
-codef left                # put VSCode on the left half in fullscreen (same as "Full Screen → Left of Screen")
-codef left ~/Developer/blog   # same, for a given directory
+codefs                     # open the current directory, fullscreen
+codefs ~/Developer/blog    # open a given directory, fullscreen
+codefs left                # put VSCode on the left half in fullscreen (same as "Full Screen → Left of Screen")
+codefs left ~/Developer/blog   # same, for a given directory
+codefs --version               # print the current version
 ```
 
-`codef left` puts VSCode on the left half of the screen in fullscreen — the same effect as the "Full Screen → Left of Screen" item in the window's green-button menu: VSCode takes the left half, borderless; the right half is yours to fill. A natively fullscreen target window is un-fullscreened first; if window tiling is unavailable, it falls back to plain left-half window placement. `left` is a keyword — to open a directory literally named `left`, use `codef ./left`.
+`codefs left` puts VSCode on the left half of the screen in fullscreen — the same effect as the "Full Screen → Left of Screen" item in the window's green-button menu: VSCode takes the left half, borderless; the right half is yours to fill. A natively fullscreen target window is un-fullscreened first; if window tiling is unavailable, it falls back to plain left-half window placement. `left` is a keyword — to open a directory literally named `left`, use `codefs ./left`.
 
 ## Problems it solves
 
@@ -41,14 +42,14 @@ Bare `code <dir>` + a simulated fullscreen hotkey has three pitfalls, all fixed 
 ## Install & Requirements
 
 - macOS only; requires the `code` CLI that ships with VSCode;
-- **The terminal app that runs `codef` must be granted Assistive Access** (System Settings → Privacy & Security → Accessibility), otherwise window enumeration and synthetic keystrokes are rejected (`not allowed assistive access`);
-- Install: drop the `codef` script somewhere on your `PATH` (e.g. `~/.local/bin/`) and make it executable.
+- **The terminal app that runs `codefs` must be granted Assistive Access** (System Settings → Privacy & Security → Accessibility), otherwise window enumeration and synthetic keystrokes are rejected (`not allowed assistive access`);
+- Install: drop the `codefs` script somewhere on your `PATH` (e.g. `~/.local/bin/`) and make it executable.
 
-Run `CODEF_DEBUG=1 codef` to print per-stage debug state when troubleshooting.
+Run `CODEFS_DEBUG=1 codefs` to print per-stage debug state when troubleshooting.
 
 ## Development vs Production
 
-This repo is the **development directory** of `codef` (`~/Developer/codef`); the **production directory** is the local `~/.local/bin/` (the copy actually running). Rules:
+This repo is the **development directory** of `codefs` (`~/Developer/codefs`); the **production directory** is the local `~/.local/bin/` (the copy actually running). Rules:
 
 - The production copy must come **only from a released artifact** (tag + GitHub Release; install by downloading/copying from the Release) — never run development sources directly, never symlink them into place; running and development versions stay strictly isolated;
 - Both sides carry a `# version:` line at the top of the script, kept in sync with the repo's `VERSION` file, so you can always tell whether the production copy lags behind the latest release.
@@ -57,4 +58,4 @@ This repo is the **development directory** of `codef` (`~/Developer/codef`); the
 
 Copyright (c) 2026 All Contributors. Released under the [MIT License](LICENSE.md).
 
-Attribution: if you use or reference this project, please keep the copyright notice and credit the source: [codef](https://github.com/xhqing/codef).
+Attribution: if you use or reference this project, please keep the copyright notice and credit the source: [codefs](https://github.com/xhqing/codefs).

@@ -1,30 +1,31 @@
 <div align="center">
-  <img src="assets/logo.svg" alt="codef" width="640">
+  <img src="assets/logo.svg" alt="codefs" width="640">
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE.md)
   [![Version](https://img.shields.io/badge/Version-0.3.0-blue)](CHANGELOG.md)
   [![Type](https://img.shields.io/badge/Type-CLI-4F46E5)](#)
-  [![Visitors](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/xhqing/xhqing/main/traffic/badges/codef.json)](https://github.com/xhqing)
+  [![Visitors](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/xhqing/xhqing/main/traffic/badges/codefs.json)](https://github.com/xhqing)
 
   [English](README.md)
 </div>
 
-# codef
+# codefs
 
-`codef` 是一个 macOS 终端小工具：**全屏打开 VSCode，并保证刚打开的那个窗口就在最上层**。用法等价于 `code <dir>` + 自动全屏 + 目标窗口置顶。
+`codefs` 是一个 macOS 终端小工具：**全屏打开 VSCode，并保证刚打开的那个窗口就在最上层**。用法等价于 `code <dir>` + 自动全屏 + 目标窗口置顶。
 
 ```bash
-codef            # 全屏打开当前目录
-codef ~/Developer/blog    # 全屏打开指定目录
-codef left       # 把 VSCode 摆到左半屏全屏（等价：窗口菜单「全屏 → 屏幕左侧」）
-codef left ~/Developer/blog   # 同上，打开指定目录
+codefs            # 全屏打开当前目录
+codefs ~/Developer/blog    # 全屏打开指定目录
+codefs left       # 把 VSCode 摆到左半屏全屏（等价：窗口菜单「全屏 → 屏幕左侧」）
+codefs left ~/Developer/blog   # 同上，打开指定目录
+codefs --version                 # 查看当前版本
 ```
 
-`codef left` 把 VSCode 摆到屏幕左半并进入全屏——等价于窗口绿色按钮菜单里的「全屏 → 屏幕左侧」：VSCode 无标题栏、独占左半屏；右侧留给你自己安排。目标窗口若在原生全屏会先退出；系统不支持平铺时自动回退为普通窗口左半屏摆放。`left` 是关键字——要打开名为 `left` 的目录请写 `codef ./left`。
+`codefs left` 把 VSCode 摆到屏幕左半并进入全屏——等价于窗口绿色按钮菜单里的「全屏 → 屏幕左侧」：VSCode 无标题栏、独占左半屏；右侧留给你自己安排。目标窗口若在原生全屏会先退出；系统不支持平铺时自动回退为普通窗口左半屏摆放。`left` 是关键字——要打开名为 `left` 的目录请写 `codefs ./left`。
 
 ## 解决什么问题
 
-裸用 `code <dir>` + 模拟全屏快捷键有三个坑，`codef` 逐一修掉：
+裸用 `code <dir>` + 模拟全屏快捷键有三个坑，`codefs` 逐一修掉：
 
 1. **多窗口时置顶错窗口**：macOS 的 `activate` 只把 VSCode 应用切到前台，不指定哪个窗口在最上层——已有多个窗口时，最上层的可能不是本次要打开的那个。
 2. **固定延时时序不可靠**：窗口创建有延迟（冷启动更慢），固定 `sleep` 后发全屏键，慢了就按了个寂寞。
@@ -41,14 +42,14 @@ codef left ~/Developer/blog   # 同上，打开指定目录
 ## 安装与前提
 
 - 仅 macOS；依赖 VSCode 自带的 `code` 命令；
-- **运行 `codef` 的终端 App 需在「系统设置 → 隐私与安全性 → 辅助功能」中授权**，否则窗口枚举与模拟按键会被系统拒绝（报 `not allowed assistive access`）；
-- 安装：把 `codef` 脚本放进 `PATH`（如 `~/.local/bin/`）并加执行权限。
+- **运行 `codefs` 的终端 App 需在「系统设置 → 隐私与安全性 → 辅助功能」中授权**，否则窗口枚举与模拟按键会被系统拒绝（报 `not allowed assistive access`）；
+- 安装：把 `codefs` 脚本放进 `PATH`（如 `~/.local/bin/`）并加执行权限。
 
-排查问题时可用 `CODEF_DEBUG=1 codef` 输出各阶段状态。
+排查问题时可用 `CODEFS_DEBUG=1 codefs` 输出各阶段状态。
 
 ## 开发与生产目录
 
-本仓库是 `codef` 的**开发目录**（`~/Developer/codef`）；**生产目录**为本机 `~/.local/bin/`（实际运行的副本）。两者关系：
+本仓库是 `codefs` 的**开发目录**（`~/Developer/codefs`）；**生产目录**为本机 `~/.local/bin/`（实际运行的副本）。两者关系：
 
 - 生产目录的代码**只能来自正式发版的产物**（tag + GitHub Release 后从 Release 下载 / 复制安装），不直跑开发源码、不用软链挂载——运行版本与开发版本严格隔离；
 - 两边版本以脚本头部的 `# version:` 行标识，与仓库根 `VERSION` 文件一致，可随时核对生产副本是否落后于已发布版本。
@@ -57,4 +58,4 @@ codef left ~/Developer/blog   # 同上，打开指定目录
 
 Copyright (c) 2026 All Contributors. Released under the [MIT License](LICENSE.md).
 
-Attribution: if you use or reference this project, please keep the copyright notice and credit the source: [codef](https://github.com/xhqing/codef).
+Attribution: if you use or reference this project, please keep the copyright notice and credit the source: [codefs](https://github.com/xhqing/codefs).
