@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-10-13
+
+### 新增
+
+- **新增 `codefs --version`**：打印当前版本（输出形如 `codefs 0.4.0`；版本号取自脚本头部 `version:` 行，与仓库根 `VERSION` 一致）；CI 增加「`--version` 输出与 VERSION 一致」断言步骤。
+
+### 变更
+
+- **项目更名 `codef` → `codefs`**（2026-10-13 用户决定）：命令、脚本文件名、GitHub 仓库（`xhqing/codefs`）、本地开发目录（`~/Developer/codefs`）统一更名；README 中英双版、`DEVELOPMENT.md`、CI、logo 文字与调试环境变量（`CODEFS_DEBUG`）同步更新；xhqing 侧流量采集 TEAM 清单与徽章 JSON 同步改名（`traffic/badges/codefs.json`）。生产副本由 `~/.local/bin/codef` 换为 `~/.local/bin/codefs`；旧命令名 `codef` 不再提供；历史条目中的 `codef` 保留原样、不回溯改写。
+
 ## [0.3.0] - 2026-10-13
 
 ### 变更
