@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-10-13
+
+### 修复
+
+- **命令命名回退到 `codef` 系列（仅保留新增的 `--version`）**（2026-10-13 用户决定）：项目与命令保持 `codef` 命名，命令共三个——`codef` / `codef left` / `codef --version`；0.4.0 的整批更名（命令 / 仓库 / 目录 / 文档等）回退。改了什么：①脚本文件名、全部用法与报错文案、README 中英双版、`DEVELOPMENT.md`、CI（`--version` 断言改回 `codef x.y.z`）、logo 文字、调试环境变量（回退 `CODEF_DEBUG`）；②GitHub 仓库（`xhqing/codef`）、本地开发目录（`~/Developer/codef`）、xhqing 流量清单与徽章（`traffic/badges/codef.json`）与登记侧（全局注册表映射表 / 分支保护清单）全部回退；③生产副本由 `~/.local/bin/codefs` 换回 `~/.local/bin/codef`。`codef --version` 保留：打印当前版本（与 `VERSION` 一致）。
+
 ## [0.4.0] - 2026-10-13
 
 ### 新增
