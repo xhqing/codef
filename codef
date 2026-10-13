@@ -1,12 +1,12 @@
 #!/bin/bash
 # version: 0.4.0（与仓库根 VERSION 保持一致，安装到生产目录后可凭此行核对版本）
-# codefs —— 全屏（或左半屏全屏）打开 VSCode，并确保刚打开的那个窗口位于最上层。
-# 用法：codefs [路径]        （默认当前目录；等于 code . + 自动全屏 + 目标窗口置顶）
-#       codefs left [路径]   （把 VSCode 摆到屏幕左半并进入全屏——等价于窗口菜单的
+# codef —— 全屏（或左半屏全屏）打开 VSCode，并确保刚打开的那个窗口位于最上层。
+# 用法：codef [路径]        （默认当前目录；等于 code . + 自动全屏 + 目标窗口置顶）
+#       codef left [路径]   （把 VSCode 摆到屏幕左半并进入全屏——等价于窗口菜单的
 #                            「全屏 → 屏幕左侧」；脚本只做这一步，右侧完全交给你
 #                            自己安排；平铺不可用时回退为普通窗口左半屏摆放）
-#                            `left` 是关键字——要打开名为 left 的目录请写 `codefs ./left`
-#       codefs --version    （查看当前版本：输出 `codefs x.y.z`，版本号与仓库根 VERSION 一致）
+#                            `left` 是关键字——要打开名为 left 的目录请写 `codef ./left`
+#       codef --version    （查看当前版本：输出 `codef x.y.z`，版本号与仓库根 VERSION 一致）
 #
 # 背景：`code <dir>` 打开后 macOS 只保证 VSCode 应用被激活，不保证哪个窗口
 # 在最上层——多窗口时置顶的可能不是本次要打开的那个，且窗口创建有延迟，
@@ -31,29 +31,29 @@
 #
 # 前提：运行它的终端 App 需在「系统设置 → 隐私与安全性 → 辅助功能」中授权，
 # 否则窗口枚举 / 模拟按键会被系统拒绝（not allowed assistive access）。
-# 调试：CODEFS_DEBUG=1 codefs 会输出各阶段状态。
+# 调试：CODEF_DEBUG=1 codef 会输出各阶段状态。
 
 set -u
 
 # --version：打印当前版本（版本号取自脚本头部 version 行，与仓库根 VERSION 一致）
 if [ "${1:-}" = "--version" ]; then
   v=$(sed -n '2p' "${BASH_SOURCE[0]}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-  echo "codefs ${v}"
+  echo "codef ${v}"
   exit 0
 fi
 
-# 参数：codefs [路径] | codefs left [路径]
-# `left` 作为首参是模式关键字（目录名恰好叫 left 时用 `codefs ./left`）。
+# 参数：codef [路径] | codef left [路径]
+# `left` 作为首参是模式关键字（目录名恰好叫 left 时用 `codef ./left`）。
 mode="full"
 if [ "${1:-}" = "left" ]; then
   mode="left"
   shift
 fi
 dir="${1:-.}"
-abs_dir=$(cd -- "$dir" 2>/dev/null && pwd -P) || { echo "codefs: 目录不存在：$dir" >&2; exit 1; }
-command -v code >/dev/null 2>&1 || { echo "codefs: 找不到 code 命令" >&2; exit 1; }
+abs_dir=$(cd -- "$dir" 2>/dev/null && pwd -P) || { echo "codef: 目录不存在：$dir" >&2; exit 1; }
+command -v code >/dev/null 2>&1 || { echo "codef: 找不到 code 命令" >&2; exit 1; }
 target_name=$(basename "$abs_dir")
-debug() { [ "${CODEFS_DEBUG:-}" = "1" ] && echo "codefs: $*" >&2 || true; }
+debug() { [ "${CODEF_DEBUG:-}" = "1" ] && echo "codef: $*" >&2 || true; }
 
 # 0) left 模式：取主屏可视区（左半屏位置 / 尺寸，用于平铺就绪检测与失败回退摆放）
 lx=0; ly=0; lw=0; lh=0
@@ -65,7 +65,7 @@ if [ "$mode" = "left" ]; then
     lx=$sx; ly=$sy; lw=$half_w; lh=$sh
     debug "屏幕可视区: ${frame}；左半: ${lx},${ly},${lw},${lh}"
   else
-    echo "codefs: 无法获取屏幕可视区（left 模式的就绪检测与失败回退将跳过）" >&2
+    echo "codef: 无法获取屏幕可视区（left 模式的就绪检测与失败回退将跳过）" >&2
   fi
 fi
 
@@ -388,27 +388,27 @@ case "$status" in
     : # 默认模式全屏流程完成
     ;;
   tile-ready)
-    echo "codefs: VSCode 已进入左半屏全屏。"
+    echo "codef: VSCode 已进入左半屏全屏。"
     ;;
   tile-failed*)
     if [ "$lw" -gt 0 ]; then
       left_fallback
-      echo "codefs: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），已回退为普通窗口左半屏摆放" >&2
+      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），已回退为普通窗口左半屏摆放" >&2
     else
-      echo "codefs: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），且无法获取屏幕可视区，未回退摆放" >&2
+      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），且无法获取屏幕可视区，未回退摆放" >&2
     fi
     ;;
   tile-not-ready)
     if [ "$lw" -gt 0 ]; then
       left_fallback
-      echo "codefs: 左半平铺未就绪（窗口未进入左半全屏态），已回退为普通窗口左半屏摆放" >&2
+      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），已回退为普通窗口左半屏摆放" >&2
     else
-      echo "codefs: 左半平铺未就绪（窗口未进入左半全屏态），且无法获取屏幕可视区，未回退摆放" >&2
+      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），且无法获取屏幕可视区，未回退摆放" >&2
     fi
     ;;
-  no-process) echo "codefs: 等待 VSCode 进程启动超时（10 秒），本次未置顶/全屏" >&2 ;;
-  no-window)  echo "codefs: 未找到标题匹配「${target_name}」的窗口（VSCode 窗口标题格式可能变了）" >&2 ;;
-  no-raise)   echo "codefs: 找到目标窗口但置顶失败（菜单与 AXRaise 均未成功）" >&2 ;;
-  *)          echo "codefs: 未预期的结果：${result}" >&2 ;;
+  no-process) echo "codef: 等待 VSCode 进程启动超时（10 秒），本次未置顶/全屏" >&2 ;;
+  no-window)  echo "codef: 未找到标题匹配「${target_name}」的窗口（VSCode 窗口标题格式可能变了）" >&2 ;;
+  no-raise)   echo "codef: 找到目标窗口但置顶失败（菜单与 AXRaise 均未成功）" >&2 ;;
+  *)          echo "codef: 未预期的结果：${result}" >&2 ;;
 esac
 exit 0

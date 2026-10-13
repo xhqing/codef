@@ -25,19 +25,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: bash syntax
-        run: bash -n codefs
+        run: bash -n codef
 
       - name: shellcheck
         run: |
           command -v shellcheck >/dev/null 2>&1 || brew install -q shellcheck
-          shellcheck -S warning codefs
+          shellcheck -S warning codef
 
       - name: AppleScript syntax (heredoc extraction + osacompile)
         run: |
-          total=$(grep -c "<<'OSA'" codefs)
+          total=$(grep -c "<<'OSA'" codef)
           [ "$total" -ge 1 ] || { echo "未找到 heredoc 块"; exit 1; }
           for i in $(seq 1 "$total"); do
-            awk -v target="$i" "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==target" codefs > "/tmp/osa$i.applescript"
+            awk -v target="$i" "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==target" codef > "/tmp/osa$i.applescript"
             [ -s "/tmp/osa$i.applescript" ] || { echo "第 $i 段 heredoc 提取为空"; exit 1; }
             # osacompile 在编译期就要解析 tell 目标应用的术语，CI runner 无 VSCode
             # 会报 Can't get application id "com.microsoft.VSCode" (-1728)。
@@ -57,26 +57,26 @@ jobs:
           fail=0
           # 防 -609 回归：activate 必须按 bundle id 定位，且不得存在按应用名的写法
           # （按名解析会命中 LaunchServices 失效缓存；code 请求后立即 activate 会被断连，重试逻辑必须保留）
-          grep -q 'tell application id "com.microsoft.VSCode" to activate' codefs \
+          grep -q 'tell application id "com.microsoft.VSCode" to activate' codef \
             || { echo "回归: activate 未按 bundle id 定位（-609 修复被移除）"; fail=1; }
-          grep -q 'tell application "Visual Studio Code"' codefs \
+          grep -q 'tell application "Visual Studio Code"' codef \
             && { echo "回归: 存在按应用名发事件的写法（-609 修复被移除）"; fail=1; }
-          grep -q 'repeat 6 times' codefs \
+          grep -q 'repeat 6 times' codef \
             || { echo "回归: activate 重试循环缺失（-609 修复被移除）"; fail=1; }
           # 防 -1708 回归：tell 块内调用脚本级 handler 必须带 my 前缀，
           # 否则消息被路由给 tell 目标（Code 进程 / System Events）报 doesn't understand
-          mc=$(grep -c 'my matchesTarget' codefs || true)
-          mr=$(grep -c 'my raiseViaMenu' codefs || true)
+          mc=$(grep -c 'my matchesTarget' codef || true)
+          mr=$(grep -c 'my raiseViaMenu' codef || true)
           [ "$mc" -ge 2 ] || { echo "回归: my matchesTarget 仅 ${mc} 处（期望 ≥2，-1708 修复被移除）"; fail=1; }
           [ "$mr" -ge 1 ] || { echo "回归: my raiseViaMenu 仅 ${mr} 处（期望 ≥1，-1708 修复被移除）"; fail=1; }
-          if grep -nE '^[[:space:]]*(if +|set +[a-zA-Z]+ +to +)(matchesTarget|raiseViaMenu)\(' codefs; then
+          if grep -nE '^[[:space:]]*(if +|set +[a-zA-Z]+ +to +)(matchesTarget|raiseViaMenu)\(' codef; then
             echo "回归: tell 块内存在裸 handler 调用（缺 my 前缀，-1708 修复被移除）"
             fail=1
           fi
           # 防 bash 3.2 吞字节崩溃（2026-10-12 事故）：$var 后紧跟非 ASCII 字节时，
           # bash 3.2 在 UTF-8 locale 下会把多字节字符吞进变量名（unbound variable）。
           # 所有后跟非 ASCII 的变量必须写 ${var}。
-          if ! perl -ne 'if (/\$[A-Za-z_][A-Za-z0-9_]*(?=[^\x00-\x7F])/) { print "  行 $.: $_"; $hit=1 } END { exit($hit ? 1 : 0) }' codefs; then
+          if ! perl -ne 'if (/\$[A-Za-z_][A-Za-z0-9_]*(?=[^\x00-\x7F])/) { print "  行 $.: $_"; $hit=1 } END { exit($hit ? 1 : 0) }' codef; then
             echo "回归: 存在 \$var 后紧跟非 ASCII 字符的写法（bash 3.2 吞字节风险，请改用 \${var}）"
             fail=1
           fi
@@ -84,10 +84,10 @@ jobs:
 
       - name: matchesTarget fixtures (VSCode title matching regression)
         run: |
-          total=$(grep -c "<<'OSA'" codefs)
+          total=$(grep -c "<<'OSA'" codef)
           vscode_block=""
           for i in $(seq 1 "$total"); do
-            awk -v target="$i" "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==target" codefs > "/tmp/osa$i.applescript"
+            awk -v target="$i" "/<<'OSA'/{n++; f=1; next} /^OSA\$/{f=0; next} f && n==target" codef > "/tmp/osa$i.applescript"
             if grep -q '^on matchesTarget' "/tmp/osa$i.applescript"; then vscode_block="/tmp/osa$i.applescript"; fi
           done
           [ -n "$vscode_block" ] || { echo "未找到含 matchesTarget 的 AppleScript 块"; exit 1; }
@@ -100,7 +100,7 @@ jobs:
       - name: version consistency (VERSION is the single source of truth)
         run: |
           ver_file=$(cat VERSION)
-          ver_script=$(sed -n '2p' codefs | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          ver_script=$(sed -n '2p' codef | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           if [ "$ver_file" != "$ver_script" ]; then
             echo "版本不一致: VERSION=${ver_file} / 脚本头部=${ver_script}"
             exit 1
@@ -110,9 +110,9 @@ jobs:
       - name: error paths (bad directory argument)
         run: |
           set +e
-          out=$(./codefs /nonexistent-codefs-ci-path 2>&1)
+          out=$(./codef /nonexistent-codef-ci-path 2>&1)
           st=$?
-          out_left=$(./codefs left /nonexistent-codefs-ci-path 2>&1)
+          out_left=$(./codef left /nonexistent-codef-ci-path 2>&1)
           st_left=$?
           set -e
           if [ "$st" -eq 0 ]; then
@@ -121,15 +121,15 @@ jobs:
           fi
           echo "$out" | grep -q "目录不存在" || { echo "错误路径失效: 未输出『目录不存在』报错"; exit 1; }
           if [ "$st_left" -eq 0 ]; then
-            echo "错误路径失效: codefs left 不存在的目录应非零退出，实际 exit 0"
+            echo "错误路径失效: codef left 不存在的目录应非零退出，实际 exit 0"
             exit 1
           fi
-          echo "$out_left" | grep -q "目录不存在" || { echo "错误路径失效: codefs left 未输出『目录不存在』报错"; exit 1; }
-          echo "错误路径正常: codefs exit ${st} / codefs left exit ${st_left}"
+          echo "$out_left" | grep -q "目录不存在" || { echo "错误路径失效: codef left 未输出『目录不存在』报错"; exit 1; }
+          echo "错误路径正常: codef exit ${st} / codef left exit ${st_left}"
 
       - name: version command (--version matches VERSION)
         run: |
-          out=$(./codefs --version)
+          out=$(./codef --version)
           ver=$(cat VERSION)
-          [ "$out" = "codefs $ver" ] || { echo "--version 输出异常: $out（期望 codefs $ver）"; exit 1; }
+          [ "$out" = "codef $ver" ] || { echo "--version 输出异常: $out（期望 codef $ver）"; exit 1; }
           echo "version command OK: $out"
