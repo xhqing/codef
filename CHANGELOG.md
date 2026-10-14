@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [未发布]
+
+### 新增
+
+- **`codef left` 新增「终端全屏预处理」**（2026-10-15，issue #25）：为什么改——承载命令的终端窗口若处于原生全屏（独占一个 Space），触发 VSCode 左半平铺会先与全屏终端形成配对，结果与预期不符（用户需求）。改了什么：① `codef left` 在最开始先判断承载本命令的终端窗口是否处于原生全屏（AXFullScreen），是则先退出其全屏、待其回到普通窗口态后再走原有流程（打开 VSCode → 左半屏平铺）；② 终端 App 识别以 `TERM_PROGRAM` 映射为主（Ghostty / iTerm2 / Terminal / WezTerm / Warp / VSCode 集成终端 / Hyper / kitty / Alacritty / Tabby）；tmux 会把 `TERM_PROGRAM` 覆盖为 `tmux`，此时沿已附加客户端的进程链找外层终端 App；识别不出 / 辅助功能权限缺失 / 退出失败时静默跳过（仅 `CODEF_DEBUG=1` 输出）、不阻塞主流程；③ 退出方式优先直接设置 `AXFullScreen=false`，未生效回退模拟 Ctrl+Cmd+F，轮询确认后再继续；④ 新增桩驱动回归测试（`test/left-terminal-fullscreen.test.sh`，CI 运行）与 README 中英双版说明。
+
+- **`codef left` 终端全屏预处理先行测试（issue #25，测试先行）**：新增 `test/left-terminal-fullscreen.test.sh`——PATH 前置桩驱动 `code` / `osascript`（不触真实系统、不抢屏幕焦点），覆盖：预处理调用形态与位置（脚本第一个 osascript 调用、在帧查询与 `code` 之前、argv 含终端 App bundle id、stdin 含 AXFocusedWindow 读取与 AXMainWindow 兜底、AXFullScreen、非全屏早退、退出尝试 `AXFullScreen=false` 与 Ctrl+Cmd+F 失败回退、轮询）、`TERM_PROGRAM` 映射表十项、未设置 / 未映射与默认模式不发起预处理、五种状态（not-fullscreen / exited / exit-failed / no-app / no-window）best-effort 不阻塞；CI 增加运行步骤。实现尚不存在、测试当前为红；实现与测试同一次提交合入（2026-10-15，Hopper 出题）。
+
 ## [0.4.1] - 2026-10-13
 
 ### 修复

@@ -4,7 +4,8 @@
 # 用法：codef [路径]        （默认当前目录；等于 code . + 自动全屏 + 目标窗口置顶）
 #       codef left [路径]   （把 VSCode 摆到屏幕左半并进入全屏——等价于窗口菜单的
 #                            「全屏 → 屏幕左侧」；脚本只做这一步，右侧完全交给你
-#                            自己安排；平铺不可用时回退为普通窗口左半屏摆放）
+#                            自己安排；平铺不可用时回退为普通窗口左半屏摆放。
+#                            若运行它的终端窗口处于原生全屏，会先退出终端全屏再执行）
 #                            `left` 是关键字——要打开名为 left 的目录请写 `codef ./left`
 #       codef --version    （查看当前版本：输出 `codef x.y.z`，版本号与仓库根 VERSION 一致）
 #
@@ -13,17 +14,20 @@
 # 固定 sleep 再按键的时序不可靠。
 #
 # 实现：
-#   1. 记录打开前 VSCode 的窗口标题列表
-#   2. code <dir> 打开（新开窗口或复用已有窗口由 VSCode 决定）
-#   3. 轮询等目标窗口出现（标题以目录名开头；优先锁定「本次新增」的窗口）
-#   4. 点击菜单栏「Window / 窗口」菜单里的目标窗口项把它带到最前
+#   2. 记录打开前 VSCode 的窗口标题列表
+#   3. code <dir> 打开（新开窗口或复用已有窗口由 VSCode 决定）
+#   4. 轮询等目标窗口出现（标题以目录名开头；优先锁定「本次新增」的窗口）
+#   5. 点击菜单栏「Window / 窗口」菜单里的目标窗口项把它带到最前
 #      （系统级聚焦语义，目标窗口在其他 Space 或已全屏时也能切换过去）；
 #      菜单找不到时退回 AXRaise
-#   5. 目标窗口未全屏时才模拟 Ctrl+Cmd+F（避免把已全屏的窗口退出全屏）
+#   6. 目标窗口未全屏时才模拟 Ctrl+Cmd+F（避免把已全屏的窗口退出全屏）
 #
 # left 模式的完整流程：
-#   0. 取主屏可视区（NSScreen.visibleFrame），供「平铺就绪检测」与「失败回退摆放」用；
-#   然后走 1~4（目标窗口置顶）；第 5 步改为：
+#   0. 若承载本命令的终端窗口处于原生全屏（AXFullScreen），先退出其全屏
+#      （终端 App 按 TERM_PROGRAM 识别；tmux 下沿已附加客户端的进程链找外层终端；
+#      识别不出时该步静默跳过、不阻塞流程）；
+#   1. 取主屏可视区（NSScreen.visibleFrame），供「平铺就绪检测」与「失败回退摆放」用；
+#   然后走 2~5（目标窗口置顶）；第 6 步改为：
 #     若目标窗口已是「左半全屏」→ 视为已就绪，直接成功返回；
 #     否则（独立全屏态先退出全屏）触发 Window → Full Screen Tile → Left of Screen
 #     （子菜单懒加载，需先展开），轮询至窗口进入左半全屏态后结束；
@@ -55,7 +59,151 @@ command -v code >/dev/null 2>&1 || { echo "codef: 找不到 code 命令" >&2; ex
 target_name=$(basename "$abs_dir")
 debug() { [ "${CODEF_DEBUG:-}" = "1" ] && echo "codef: $*" >&2 || true; }
 
-# 0) left 模式：取主屏可视区（左半屏位置 / 尺寸，用于平铺就绪检测与失败回退摆放）
+# —— 终端 App 识别（left 模式预处理用）——
+
+# 沿进程链向上找 GUI App（.app 包）的 bundle identifier；找不到时输出空、返回非零。
+app_bundle_of_pid() {
+  local p="$1" cmd app
+  while [ -n "$p" ] && [ "$p" != "1" ] && [ "$p" != "0" ]; do
+    cmd=$(ps -o comm= -p "$p" 2>/dev/null) || break
+    case "$cmd" in
+      *.app/Contents/MacOS/*)
+        app="${cmd%%/Contents/MacOS/*}"
+        if [ -r "${app}/Contents/Info.plist" ]; then
+          defaults read "${app}/Contents/Info" CFBundleIdentifier 2>/dev/null && return 0
+        fi
+        ;;
+    esac
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+  done
+  return 1
+}
+
+# 承载本命令的终端 App 的 bundle identifier；识别不出时返回非零。
+# 判定：TERM_PROGRAM 映射为主（覆盖常见终端）；tmux 会把 TERM_PROGRAM 覆盖为
+# "tmux"，此时沿已附加客户端的进程链找外层终端 App。
+detect_term_bundle() {
+  local pid="" found="" pids="" bid=""
+  case "${TERM_PROGRAM:-}" in
+    ghostty)        echo "com.mitchellh.ghostty" ;;
+    iTerm.app)      echo "com.googlecode.iterm2" ;;
+    Apple_Terminal) echo "com.apple.Terminal" ;;
+    WezTerm)        echo "com.github.wez.wezterm" ;;
+    WarpTerminal)   echo "dev.warp.Warp-Stable" ;;
+    vscode)         echo "com.microsoft.VSCode" ;;
+    Hyper)          echo "co.zeit.hyper" ;;
+    kitty)          echo "net.kovidgoyal.kitty" ;;
+    Alacritty)      echo "org.alacritty" ;;
+    Tabby)          echo "org.tabby" ;;
+    tmux)
+      # tmux 覆盖 TERM_PROGRAM=tmux：沿已附加客户端的进程链识别外层终端 App
+      command -v tmux >/dev/null 2>&1 || return 1
+      pids=$(tmux list-clients -F '#{client_pid}' 2>/dev/null || true)
+      for pid in $pids; do
+        bid=$(app_bundle_of_pid "$pid" 2>/dev/null || true)
+        [ -z "$bid" ] && continue
+        if [ -z "$found" ]; then
+          found="$bid"
+        elif [ "$found" != "$bid" ]; then
+          return 1 # 多个客户端指向不同 App：无法判定，放弃
+        fi
+      done
+      if [ -n "$found" ]; then
+        echo "$found"
+        return 0
+      fi
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+  return 0
+}
+
+# 0) left 模式：若承载本命令的终端窗口处于原生全屏，先退出其全屏
+#    （终端识别不出 / 退出失败时静默跳过——best effort，主流程照常继续）
+if [ "$mode" = "left" ]; then
+  term_bid=$(detect_term_bundle 2>/dev/null || true)
+  if [ -n "$term_bid" ]; then
+    term_fs_out=$(osascript - "$term_bid" <<'OSA' 2>/dev/null || true
+-- 承载本命令的终端 App 的聚焦窗口若处于原生全屏，退出其全屏。
+-- best effort：任何失败都不阻塞主流程。返回 not-fullscreen / exited /
+-- exit-failed / no-app / no-window 之一。
+on run argv
+	set bid to item 1 of argv
+	tell application "System Events"
+		set p to missing value
+		try
+			set p to first application process whose bundle identifier is bid
+		end try
+		if p is missing value then return "no-app"
+		tell p
+			-- 聚焦窗口（兜底主窗口）
+			set w to missing value
+			try
+				set w to value of attribute "AXFocusedWindow"
+			end try
+			if w is missing value then
+				try
+					set w to value of attribute "AXMainWindow"
+				end try
+			end if
+			if w is missing value then return "no-window"
+
+			set isFS to false
+			try
+				set isFS to value of attribute "AXFullScreen" of w
+			end try
+			if not isFS then return "not-fullscreen"
+
+			-- 先尝试直接设置属性退出全屏（不抢焦点），未生效再回退按键
+			try
+				set value of attribute "AXFullScreen" of w to false
+			end try
+			repeat 15 times
+				delay 0.2
+				set fsNow to true
+				try
+					set fsNow to value of attribute "AXFullScreen" of w
+				end try
+				if not fsNow then
+					delay 0.4
+					return "exited"
+				end if
+			end repeat
+
+			-- 回退：激活该 App、聚焦窗口后模拟 Ctrl+Cmd+F
+			try
+				set frontmost of p to true
+			end try
+			try
+				perform action "AXRaise" of w
+			end try
+			delay 0.4
+			keystroke "f" using {command down, control down}
+			repeat 15 times
+				delay 0.2
+				set fsNow to true
+				try
+					set fsNow to value of attribute "AXFullScreen" of w
+				end try
+				if not fsNow then
+					delay 0.4
+					return "exited"
+				end if
+			end repeat
+			return "exit-failed"
+		end tell
+	end tell
+end run
+OSA
+)
+    debug "终端全屏预处理（${term_bid}）：${term_fs_out:-无输出}"
+  else
+    debug "终端全屏预处理：未识别承载命令的终端 App，跳过"
+  fi
+fi
+
+# 1) left 模式：取主屏可视区（左半屏位置 / 尺寸，用于平铺就绪检测与失败回退摆放）
 lx=0; ly=0; lw=0; lh=0
 if [ "$mode" = "left" ]; then
   frame=$(osascript -l JavaScript -e 'ObjC.import("AppKit"); var f=$.NSScreen.mainScreen.visibleFrame; var g=$.NSScreen.mainScreen.frame; Math.round(f.origin.x)+","+Math.round(g.size.height-f.origin.y-f.size.height)+","+Math.round(f.size.width)+","+Math.round(f.size.height)' 2>/dev/null || true)
@@ -69,7 +217,7 @@ if [ "$mode" = "left" ]; then
   fi
 fi
 
-# 1) 记录打开前的窗口标题（VSCode 未运行时为空）
+# 2) 记录打开前的窗口标题（VSCode 未运行时为空）
 pre_names=$(osascript <<'OSA' 2>/dev/null || true
 tell application "System Events"
 	if not (exists process "Code") then return ""
@@ -86,10 +234,10 @@ OSA
 debug "目标目录: $abs_dir (匹配名: $target_name)"
 debug "打开前窗口: [$(echo "$pre_names" | tr '\n' '|')]"
 
-# 2) 打开 VSCode
+# 3) 打开 VSCode
 code "$abs_dir"
 
-# 3~5) 等目标窗口出现 → 置顶 → 默认模式全屏 / left 模式左半全屏序列
+# 4~6) 等目标窗口出现 → 置顶 → 默认模式全屏 / left 模式左半全屏序列
 result=$(osascript - "$target_name" "$pre_names" "$mode" "$lx" "$ly" "$lw" "$lh" <<'OSA'
 
 -- 去掉段首的脏标记（● / • / *）与首尾空白
