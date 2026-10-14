@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [未发布]
+## [0.5.0] - 2026-10-15
 
 ### 新增
 
