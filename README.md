@@ -21,7 +21,7 @@ codef left ~/Developer/blog   # same, for a given directory
 codef --version               # print the current version
 ```
 
-`codef left` puts VSCode on the left half of the screen in fullscreen — the same effect as the "Full Screen → Left of Screen" item in the window's green-button menu: VSCode takes the left half, borderless; the right half is yours to fill. A natively fullscreen target window is un-fullscreened first; if window tiling is unavailable, it falls back to plain left-half window placement. `left` is a keyword — to open a directory literally named `left`, use `codef ./left`.
+`codef left` puts VSCode on the left half of the screen in fullscreen — the same effect as the "Full Screen → Left of Screen" item in the window's green-button menu: VSCode takes the left half, borderless; the right half is yours to fill. **If the terminal window running the command is natively fullscreen, it exits that fullscreen first** (otherwise the left-half tiling would pair with the fullscreen terminal); a natively fullscreen target window is un-fullscreened first; if window tiling is unavailable, it falls back to plain left-half window placement. `left` is a keyword — to open a directory literally named `left`, use `codef ./left`.
 
 ## Problems it solves
 
@@ -45,7 +45,7 @@ Bare `code <dir>` + a simulated fullscreen hotkey has three pitfalls, all fixed 
 - **The terminal app that runs `codef` must be granted Assistive Access** (System Settings → Privacy & Security → Accessibility), otherwise window enumeration and synthetic keystrokes are rejected (`not allowed assistive access`);
 - Install: drop the `codef` script somewhere on your `PATH` (e.g. `~/.local/bin/`) and make it executable.
 
-Run `CODEF_DEBUG=1 codef` to print per-stage debug state when troubleshooting.
+Run `CODEF_DEBUG=1 codef` to print per-stage debug state when troubleshooting (including the terminal fullscreen pre-step detection and its result).
 
 ## Development vs Production
 

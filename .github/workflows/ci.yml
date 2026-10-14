@@ -97,6 +97,9 @@ jobs:
           [ "$(grep -c '^on ' /tmp/matcher-test.applescript)" -ge 3 ] || { echo "处理器拼接失败（期望 cleanSegment / matchesTarget / run 三个）"; exit 1; }
           osascript /tmp/matcher-test.applescript
 
+      - name: left terminal fullscreen preprocessing (stubbed, no GUI)
+        run: bash test/left-terminal-fullscreen.test.sh
+
       - name: version consistency (VERSION is the single source of truth)
         run: |
           ver_file=$(cat VERSION)
