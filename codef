@@ -31,11 +31,15 @@
 #     若目标窗口已是「左半全屏」→ 视为已就绪，直接成功返回；
 #     否则（独立全屏态先退出全屏）触发 Window → Full Screen Tile → Left of Screen
 #     （子菜单懒加载，需先展开），轮询至窗口进入左半全屏态后结束；
-#     触发失败或未就绪时回退为普通窗口左半屏摆放（保底）。
+#     单次触发被系统静默忽略时自动重试（最多 3 次尝试；2026-10-14 增——实测
+#     macOS 26 上偶发「菜单项可点、动作无效果、无任何报错」的忽略形态）；
+#     触发失败或全部尝试未就绪时回退为普通窗口左半屏摆放（保底），并把诊断
+#     时间线追加到 ~/Library/Logs/codef.log（2026-10-14 增）。
 #
 # 前提：运行它的终端 App 需在「系统设置 → 隐私与安全性 → 辅助功能」中授权，
 # 否则窗口枚举 / 模拟按键会被系统拒绝（not allowed assistive access）。
 # 调试：CODEF_DEBUG=1 codef 会输出各阶段状态。
+# 诊断日志：left 模式失败时自动落盘 ~/Library/Logs/codef.log。
 
 set -u
 
@@ -304,6 +308,54 @@ on raiseViaMenu(targetName)
 	return false
 end raiseViaMenu
 
+-- 采集目标窗口当前状态（全屏标志 / 位置 / 尺寸），供诊断日志用
+on winState(targetWin)
+	set out to "fs=? p=? s=?"
+	try
+		tell application "System Events" to tell process "Code"
+			set fsVal to "?"
+			try
+				set fsVal to (value of attribute "AXFullScreen" of window targetWin) as text
+			end try
+			set p to position of window targetWin
+			set s to size of window targetWin
+			set out to "fs=" & fsVal & " p=" & (item 1 of p as text) & "," & (item 2 of p as text) & " s=" & (item 1 of s as text) & "," & (item 2 of s as text)
+		end tell
+	end try
+	return out
+end winState
+
+-- 采集聚焦 / 主窗口与前台状态（判断菜单动作可能落到哪个窗口），供诊断日志用
+on focusState()
+	set out to "focus=?"
+	try
+		tell application "System Events" to tell process "Code"
+			set fw to ""
+			set mw to ""
+			try
+				set fw to name of value of attribute "AXFocusedWindow"
+			end try
+			try
+				set mw to name of value of attribute "AXMainWindow"
+			end try
+			set out to "frontmost=" & (frontmost as text) & " focused=" & fw & " main=" & mw
+		end tell
+	end try
+	return out
+end focusState
+
+-- 诊断行列表拼成多行文本
+on joinLines(lst)
+	set out to ""
+	repeat with ln in lst
+		set out to out & (ln as text) & linefeed
+	end repeat
+	if (count of out) > 0 then
+		if character -1 of out is linefeed then set out to text 1 thru -2 of out
+	end if
+	return out
+end joinLines
+
 on run argv
 	set targetName to item 1 of argv
 	set preText to item 2 of argv
@@ -419,48 +471,94 @@ on run argv
 				delay 1.8
 			end if
 
-			-- 触发 Window → Full Screen Tile → Left of Screen
-			-- （Full Screen Tile 子菜单懒加载：必须先 pick 展开再取子项）
-			set triggered to false
-			set triggerErr to ""
-			repeat with menuName in {"Window", "窗口"}
-				if triggered then exit repeat
-				try
-					set wm to menu bar item (menuName as text) of menu bar 1 of process "Code"
-					pick menu item "Full Screen Tile" of menu 1 of wm
-					delay 0.5
-					click menu item "Left of Screen" of menu 1 of menu item "Full Screen Tile" of menu 1 of wm
-					set triggered to true
-				on error e number n
-					set triggerErr to triggerErr & "[" & (menuName as text) & ":" & n & ":" & (e as text) & "]"
-				end try
-			end repeat
-			if not triggered then return "tile-failed: " & triggerErr & linefeed & targetWin
+			-- 触发 Window → Full Screen Tile → Left of Screen。
+			-- macOS 26 实测：偶发「菜单项 enabled、点击无报错、但系统静默忽略动作」
+			-- （2026-10-14 排查）；故单次触发不足——未就绪时重开菜单再触发，最多
+			-- 3 次尝试；每次尝试采集窗口 / 菜单状态进诊断列表（失败时由调用方落盘）。
+			set diagLines to {"screen: lx=" & (lx as text) & " ly=" & (ly as text) & " lw=" & (lw as text) & " lh=" & (lh as text)}
+			set maxAttempts to 3
+			set pollCount to 20
+			set everTriggered to false
+			set triggerErrAll to ""
 
-			-- 轮询等就绪（窗口进入左半全屏态），不做固定 sleep
-			repeat 25 times
-				delay 0.1
-				set fsR to false
-				set xR to -1
-				set wR to 0
+			repeat with attempt from 1 to maxAttempts
+				set attemptTag to "attempt " & (attempt as text)
+				set end of diagLines to attemptTag & " before: " & my winState(targetWin) & " / " & my focusState()
+
+				-- 单次触发（菜单名 Window / 窗口 兼容；子菜单懒加载需先 pick 展开）
+				set triggered to false
+				set triggerErr to ""
+				repeat with menuName in {"Window", "窗口"}
+					if triggered then exit repeat
+					try
+						set wm to menu bar item (menuName as text) of menu bar 1 of process "Code"
+						pick menu item "Full Screen Tile" of menu 1 of wm
+						delay 0.5
+						set itemEnabled to "?"
+						try
+							set itemEnabled to (enabled of menu item "Left of Screen" of menu 1 of menu item "Full Screen Tile" of menu 1 of wm) as text
+						end try
+						click menu item "Left of Screen" of menu 1 of menu item "Full Screen Tile" of menu 1 of wm
+						set triggered to true
+						set everTriggered to true
+						set end of diagLines to attemptTag & " trigger(" & (menuName as text) & "): clicked, left-of-screen enabled=" & itemEnabled
+					on error e number n
+						set triggerErr to triggerErr & "[" & (menuName as text) & ":" & n & ":" & (e as text) & "]"
+					end try
+				end repeat
+
+				if not triggered then
+					set triggerErrAll to triggerErrAll & triggerErr
+					set end of diagLines to attemptTag & " trigger-error: " & triggerErr
+					if not everTriggered then
+						-- 菜单一直不可用（如旧系统无此菜单）：按触发失败返回，不空转重试
+						return "tile-failed: " & triggerErrAll & linefeed & targetWin & linefeed & my joinLines(diagLines)
+					end if
+					exit repeat
+				end if
+
+				-- 就绪轮询（窗口进入左半全屏态为就绪；约 3 秒）
+				repeat pollCount times
+					delay 0.15
+					set fsR to false
+					set xR to -1
+					set wR to 0
+					try
+						set fsR to value of attribute "AXFullScreen" of window targetWin of process "Code"
+						set pR to position of window targetWin of process "Code"
+						set sR to size of window targetWin of process "Code"
+						set xR to item 1 of pR
+						set wR to item 1 of sR
+					end try
+					if fsR and (lw is 0 or (xR ≤ lx + 2 and wR ≥ lw - 30 and wR ≤ lw + 30)) then
+						return "tile-ready" & linefeed & targetWin & linefeed & my joinLines(diagLines)
+					end if
+				end repeat
+				set end of diagLines to attemptTag & " after: " & my winState(targetWin)
+
+				-- 未就绪：若窗口进了独立全屏（触发有效果但形态不对），先退出全屏再重试
+				set fsNow to false
 				try
-					set fsR to value of attribute "AXFullScreen" of window targetWin of process "Code"
-					set pR to position of window targetWin of process "Code"
-					set sR to size of window targetWin of process "Code"
-					set xR to item 1 of pR
-					set wR to item 1 of sR
+					set fsNow to value of attribute "AXFullScreen" of window targetWin of process "Code"
 				end try
-				if fsR and (lw is 0 or (xR ≤ lx + 2 and wR ≥ lw - 30 and wR ≤ lw + 30)) then return "tile-ready" & linefeed & targetWin
+				if fsNow then
+					keystroke "f" using {command down, control down}
+					delay 1.5
+					set end of diagLines to attemptTag & " exited fullscreen"
+				else
+					delay 0.6
+				end if
 			end repeat
 
-			-- 触发成功但未就绪：退全屏复位后报失败（由调用方回退半屏摆放）
+			-- 全部尝试失败：退全屏复位后报未就绪（由调用方回退半屏摆放）
+			set end of diagLines to "result: not-ready after attempts"
 			try
 				if value of attribute "AXFullScreen" of window targetWin of process "Code" then
 					keystroke "f" using {command down, control down}
 					delay 1.5
 				end if
 			end try
-			return "tile-not-ready" & linefeed & targetWin
+			return "tile-not-ready" & linefeed & targetWin & linefeed & my joinLines(diagLines)
 		end if
 
 		-- 默认模式：未全屏才发全屏键（对已全屏窗口重复 Ctrl+Cmd+F 会退出全屏）
@@ -474,9 +572,27 @@ OSA
 )
 status=$(printf '%s' "$result" | head -1)
 win_name=$(printf '%s' "$result" | tail -n +2 | head -1)
+diag=$(printf '%s' "$result" | tail -n +3)
 debug "结果: ${status}${win_name:+ [窗口: ${win_name}]}"
 
 # left 模式平铺失败时收尾：清理全屏态（尽力）+ 回退为普通窗口左半屏摆放（保底）
+fallback_note="（未执行）"
+logfile="$HOME/Library/Logs/codef.log"
+
+# 失败时把诊断时间线追加到日志文件（2026-10-14 增：平铺被系统静默忽略的事故没有
+# 可回溯日志；left 模式的 AppleScript 已采集每次尝试的窗口 / 菜单状态）。
+log_failure() {
+  local v
+  v=$(sed -n '2p' "${BASH_SOURCE[0]}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+  {
+    printf '===== %s  codef %s  mode=%s  target=%s =====\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${v:-?}" "$mode" "$target_name"
+    printf 'dir: %s\n' "$abs_dir"
+    if [ -n "${diag:-}" ]; then printf '%s\n' "$diag"; fi
+    printf 'fallback: %s\n' "$fallback_note"
+    printf 'status: %s\n\n' "$1"
+  } >> "$logfile" 2>/dev/null || debug "诊断日志写入失败：${logfile}"
+}
+
 left_fallback() {
   local out
   out=$(osascript - "$lx" "$ly" "$lw" "$lh" "${win_name:-}" <<'OSA' 2>/dev/null || echo "fallback-error"
@@ -522,9 +638,9 @@ end run
 OSA
 )
   case "$out" in
-    fallback-done) debug "已回退半屏摆放（${target_name}）" ;;
-    no-window)     debug "回退时找不到目标窗口" ;;
-    *)             debug "回退处理异常: ${out}" ;;
+    fallback-done) fallback_note="已回退半屏摆放（${target_name}）"; debug "已回退半屏摆放（${target_name}）" ;;
+    no-window)     fallback_note="回退时找不到目标窗口"; debug "回退时找不到目标窗口" ;;
+    *)             fallback_note="回退处理异常: ${out}"; debug "回退处理异常: ${out}" ;;
   esac
 }
 
@@ -541,22 +657,24 @@ case "$status" in
   tile-failed*)
     if [ "$lw" -gt 0 ]; then
       left_fallback
-      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），已回退为普通窗口左半屏摆放" >&2
+      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），已回退为普通窗口左半屏摆放；诊断日志：${logfile}" >&2
     else
-      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），且无法获取屏幕可视区，未回退摆放" >&2
+      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），且无法获取屏幕可视区，未回退摆放；诊断日志：${logfile}" >&2
     fi
+    log_failure "$status"
     ;;
   tile-not-ready)
     if [ "$lw" -gt 0 ]; then
       left_fallback
-      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），已回退为普通窗口左半屏摆放" >&2
+      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），已回退为普通窗口左半屏摆放；诊断日志：${logfile}" >&2
     else
-      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），且无法获取屏幕可视区，未回退摆放" >&2
+      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），且无法获取屏幕可视区，未回退摆放；诊断日志：${logfile}" >&2
     fi
+    log_failure "$status"
     ;;
-  no-process) echo "codef: 等待 VSCode 进程启动超时（10 秒），本次未置顶/全屏" >&2 ;;
-  no-window)  echo "codef: 未找到标题匹配「${target_name}」的窗口（VSCode 窗口标题格式可能变了）" >&2 ;;
-  no-raise)   echo "codef: 找到目标窗口但置顶失败（菜单与 AXRaise 均未成功）" >&2 ;;
-  *)          echo "codef: 未预期的结果：${result}" >&2 ;;
+  no-process) echo "codef: 等待 VSCode 进程启动超时（10 秒），本次未置顶/全屏；诊断日志：${logfile}" >&2; log_failure "$status" ;;
+  no-window)  echo "codef: 未找到标题匹配「${target_name}」的窗口（VSCode 窗口标题格式可能变了）；诊断日志：${logfile}" >&2; log_failure "$status" ;;
+  no-raise)   echo "codef: 找到目标窗口但置顶失败（菜单与 AXRaise 均未成功）；诊断日志：${logfile}" >&2; log_failure "$status" ;;
+  *)          echo "codef: 未预期的结果：${result}" >&2; log_failure "$status" ;;
 esac
 exit 0

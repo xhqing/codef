@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [未发布]
+
+### 变更
+
+- **新增 `MEMO.md` / `MEMO-archive.md`，功能调查转入 GitHub Issue**（2026-10-15）：「`codef left` 同目录新开窗口」功能的调查结论与搁置决定转入 Issue #28 跟踪（备忘条目 M1 已转移归档）；#24 重试 + 诊断修复的发布决定随本版本执行（M2 归档）——建立备忘机制并归档处理结果，避免调查结论随本机 `tmp/` 清理丢失（该调查结论：同目录第二窗口虽可用符号链接别名开出，但平铺动作间歇性整段失灵使新窗口进不了左半屏，详见 Issue #28）。
+
+### 修复
+
+- **`codef left` 平铺触发加重试与失败诊断日志**（2026-10-14，issue #24）：为什么改——macOS 26 上偶发「Window → Full Screen Tile → Left of Screen」菜单项 enabled、点击无报错、但系统静默忽略动作；原实现单次触发 + 约 2.5 秒轮询即回退，且失败无持久日志可查（2026-10-14 实测事故，见 issue #24）。改了什么：①触发未就绪时自动重试（最多 3 次尝试；每次尝试前记录窗口 / 聚焦状态、尝试后轮询约 3 秒；窗口若进了独立全屏先退出再重试）；菜单不可用（如旧系统无此菜单）仍按触发失败立即回退、不空转；②失败时把诊断时间线（屏幕几何、每次尝试前后的窗口几何 / AXFullScreen / 菜单 enabled / 聚焦窗口、回退结果）追加到 `~/Library/Logs/codef.log`，stderr 提示日志位置；③README 中英双版与 `DEVELOPMENT.md` 同步说明，`DEVELOPMENT.md` 增加窗口类测试须知。
+
 ## [0.5.0] - 2026-10-15
 
 ### 新增
