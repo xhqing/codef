@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [未发布]
+
+### 新增
+
+- **`codef left` 命中「同目录已有左半平铺窗口」时另开新窗口接管**（2026-10-16，issue #28）：为什么改——用户要求：同目录已有左半平铺窗口时不复用（聚焦）它，而是另开一个新窗口。改了什么：① `codef left` 第一遍找到已是左半全屏的目标窗口（原 `splitview-already` 静默复用路径）时，不再直接返回，而是：在别名根下建符号链接别名（`CODEF_ALIAS_ROOT` 可覆盖，默认 `~/Library/Caches/codef/aliases/<时间戳>-<pid>/<目录名>`）→ `code <别名>` 开出第二窗口（VSCode 按字面路径判定目录身份，别名绕过去重）→ 以 `left-new` 模式再调主 AppleScript：新窗置顶、旧窗退出全屏（尽力，失败不阻断）、新窗平铺（复用既有重试）；② 别名创建失败时 stderr 告警并保持旧行为（复用已有窗口）；③ 失败路径的诊断日志包含别名路径；④ 新增桩驱动回归测试 `test/left-new-window.test.sh`（43 项断言，CI 运行）与 README 中英双版说明。
+
 ## [0.5.1] - 2026-10-15
 
 ### 变更

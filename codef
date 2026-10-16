@@ -5,7 +5,8 @@
 #       codef left [路径]   （把 VSCode 摆到屏幕左半并进入全屏——等价于窗口菜单的
 #                            「全屏 → 屏幕左侧」；脚本只做这一步，右侧完全交给你
 #                            自己安排；平铺不可用时回退为普通窗口左半屏摆放。
-#                            若运行它的终端窗口处于原生全屏，会先退出终端全屏再执行）
+#                            若运行它的终端窗口处于原生全屏，会先退出终端全屏再执行；
+#                            若同目录已有左半平铺窗口，会另开新窗口接管、不再复用）
 #                            `left` 是关键字——要打开名为 left 的目录请写 `codef ./left`
 #       codef --version    （查看当前版本：输出 `codef x.y.z`，版本号与仓库根 VERSION 一致）
 #
@@ -28,7 +29,10 @@
 #      识别不出时该步静默跳过、不阻塞流程）；
 #   1. 取主屏可视区（NSScreen.visibleFrame），供「平铺就绪检测」与「失败回退摆放」用；
 #   然后走 2~5（目标窗口置顶）；第 6 步改为：
-#     若目标窗口已是「左半全屏」→ 视为已就绪，直接成功返回；
+#     若目标窗口已是「左半全屏」→ 另开新窗口接管（issue #28）：在别名根下建
+#     符号链接别名（CODEF_ALIAS_ROOT 可覆盖，默认 ~/Library/Caches/codef/aliases）→
+#     code <别名> 开出第二窗口 → 旧窗退出全屏（尽力，失败不阻断）→ 新窗平铺；
+#     别名创建失败时告警并保持旧行为（复用已有窗口、静默成功）；
 #     否则（独立全屏态先退出全屏）触发 Window → Full Screen Tile → Left of Screen
 #     （子菜单懒加载，需先展开），轮询至窗口进入左半全屏态后结束；
 #     单次触发被系统静默忽略时自动重试（最多 3 次尝试；2026-10-14 增——实测
@@ -242,7 +246,9 @@ debug "打开前窗口: [$(echo "$pre_names" | tr '\n' '|')]"
 code "$abs_dir"
 
 # 4~6) 等目标窗口出现 → 置顶 → 默认模式全屏 / left 模式左半全屏序列
-result=$(osascript - "$target_name" "$pre_names" "$mode" "$lx" "$ly" "$lw" "$lh" <<'OSA'
+# （封装为函数供两遍复用：left-new 新窗接管时以第 8 参传旧窗口名再调一次）
+main_ascript() {
+  osascript - "$@" <<'OSA'
 
 -- 去掉段首的脏标记（● / • / *）与首尾空白
 on cleanSegment(t)
@@ -364,6 +370,10 @@ on run argv
 	set ly to (item 5 of argv) as integer
 	set lw to (item 6 of argv) as integer
 	set lh to (item 7 of argv) as integer
+	set oldWin to ""
+	try
+		set oldWin to item 8 of argv
+	end try
 
 	-- activate 带重试：code 命令的打开请求刚发出时 VSCode 主线程忙于处理，
 	-- 紧随的 Apple Event 会被断连（-609 Connection is invalid），重试至成功
@@ -447,7 +457,7 @@ on run argv
 			set isFS to value of attribute "AXFullScreen" of window targetWin of process "Code"
 		end try
 
-		if modeArg is "left" then
+		if modeArg is "left" or modeArg is "left-new" then
 			-- 把目标窗口摆到左全屏（等价于菜单「全屏 → 屏幕左侧」）；
 			-- 右侧窗口的选择完全交给用户/系统（脚本不代点，2026-10-13 用户决定）
 
@@ -476,6 +486,36 @@ on run argv
 			-- （2026-10-14 排查）；故单次触发不足——未就绪时重开菜单再触发，最多
 			-- 3 次尝试；每次尝试采集窗口 / 菜单状态进诊断列表（失败时由调用方落盘）。
 			set diagLines to {"screen: lx=" & (lx as text) & " ly=" & (ly as text) & " lw=" & (lw as text) & " lh=" & (lh as text)}
+
+			-- left-new：先让旧窗退出全屏（接管）；失败不阻断，仅记诊断
+			if modeArg is "left-new" and oldWin is not "" then
+				-- 同目录新旧两窗同名，菜单提窗可能点到旧窗——显式把新窗抬到最前
+				try
+					perform action "AXRaise" of window targetWin of process "Code"
+				end try
+				delay 0.3
+				set oldExitNote to "old-exit: skip"
+				try
+					set value of attribute "AXFullScreen" of window oldWin of process "Code" to false
+					set oldExitNote to "old-exit: requested"
+					repeat 20 times
+						delay 0.2
+						set oldFs to false
+						try
+							set oldFs to value of attribute "AXFullScreen" of window oldWin of process "Code"
+						end try
+						if not oldFs then
+							set oldExitNote to "old-exit: exited"
+							exit repeat
+						end if
+					end repeat
+				on error e
+					set oldExitNote to "old-exit: error " & (e as text)
+				end try
+				set end of diagLines to oldExitNote
+				delay 0.4
+			end if
+
 			set maxAttempts to 3
 			set pollCount to 20
 			set everTriggered to false
@@ -569,11 +609,48 @@ on run argv
 	end tell
 end run
 OSA
-)
+}
+
+result=$(main_ascript "$target_name" "$pre_names" "$mode" "$lx" "$ly" "$lw" "$lh")
 status=$(printf '%s' "$result" | head -1)
 win_name=$(printf '%s' "$result" | tail -n +2 | head -1)
 diag=$(printf '%s' "$result" | tail -n +3)
 debug "结果: ${status}${win_name:+ [窗口: ${win_name}]}"
+
+# left 模式：命中「同目录已有左半平铺窗口」→ 另开新窗口接管（issue #28）
+# 流程：建符号链接别名（绕过 code 的目录去重）→ code <别名> 开第二窗口 →
+# 以 left-new 模式再调主 AppleScript（旧窗退全屏 + 新窗平铺，复用既有重试）。
+new_window_used=""
+if [ "$status" = "splitview-already" ] && [ "$mode" = "left" ]; then
+  alias_root="${CODEF_ALIAS_ROOT:-$HOME/Library/Caches/codef/aliases}"
+  alias_dir="${alias_root}/$(date +%s)-$$"
+  alias_path="${alias_dir}/${target_name}"
+  if mkdir -p "$alias_dir" 2>/dev/null && ln -s "$abs_dir" "$alias_path" 2>/dev/null; then
+    debug "新窗流程：别名 ${alias_path} -> ${abs_dir}（旧窗：${win_name:-未知}）"
+    pre_names2=$(osascript <<'OSA' 2>/dev/null || true
+tell application "System Events"
+	if not (exists process "Code") then return ""
+	tell process "Code"
+		set out to ""
+		repeat with n in (get name of every window)
+			set out to out & (n as text) & linefeed
+		end repeat
+		return out
+	end tell
+end tell
+OSA
+)
+    code "$alias_path"
+    result=$(main_ascript "$target_name" "$pre_names2" "left-new" "$lx" "$ly" "$lw" "$lh" "${win_name:-}")
+    status=$(printf '%s' "$result" | head -1)
+    win_name=$(printf '%s' "$result" | tail -n +2 | head -1)
+    diag=$(printf 'new-window: alias=%s\n%s' "$alias_path" "$(printf '%s' "$result" | tail -n +3)")
+    new_window_used=1
+    debug "新窗流程结果: ${status}${win_name:+ [窗口: ${win_name}]}"
+  else
+    echo "codef: 无法创建别名（${alias_path}），保持复用已有窗口" >&2
+  fi
+fi
 
 # left 模式平铺失败时收尾：清理全屏态（尽力）+ 回退为普通窗口左半屏摆放（保底）
 fallback_note="（未执行）"
@@ -652,7 +729,11 @@ case "$status" in
     : # 默认模式全屏流程完成
     ;;
   tile-ready)
-    echo "codef: VSCode 已进入左半屏全屏。"
+    if [ -n "$new_window_used" ]; then
+      echo "codef: 同目录已有左半平铺窗口，已另开新窗口并接管左半屏全屏。"
+    else
+      echo "codef: VSCode 已进入左半屏全屏。"
+    fi
     ;;
   tile-failed*)
     if [ "$lw" -gt 0 ]; then
