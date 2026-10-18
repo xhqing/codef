@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### 变更
 
+- **查明 `codef left` 平铺失败根因：残留的「全屏平铺配对会话」静默吞掉后续平铺请求**（2026-10-18，实测复现与验证记录见 `tmp/probe-20261018/`）：为什么记——用户当晚报告 `codef left` 连续失败，AI 实机调查定位出根因（覆盖 issue #24 的「菜单 enabled、点击无效果」之谜），属重大结论、需留档；无功能改动，修复待实施（见 TODO T6）。查到什么：① 「全屏幕平铺 → 屏幕左侧」成功后会启动「选右半屏伙伴」配对会话（Dock 的 `half-backdrop` 面板）；② 会话未完成/未取消而残留时，后续**所有**左半平铺请求被系统静默忽略（与 App、窗口数量无关；此前「Finder 能、VSCode 不能」的观感是配对面板出现的时序巧合）；③ Esc（或点击桌面空白）取消会话后立即恢复。实测链：面板挂起时 `codef left` 失败 → Esc → 重跑立即 `tile-ready`。
+
 - **文档路径口径更新（2026-10-17）：全局权威源迁至 `~/.pi/agent/`**：DEVELOPMENT.md 一处引用更新——通用工作规则指向 `~/.claude/CLAUDE.md` → `~/.pi/agent/CLAUDE.md`（2026-10-17 全局权威源迁移；hooks 除外）。
 
 - **挂载「Agent 进驻」软链接（2026-10-17 用户修订）**：为什么改——用户 2026-10-17 修订智能体专属文件规则：实体只属负责的 Agent 项目（Atlas / FullStackEngineerAgent），子项目改挂两条指回 Agent 项目的软链接，在子项目目录开会话即继承 Atlas 的身份 / 规则 / 技能；详见全局 `agents-registry.md`「智能体专属文件归属与子项目映射（2026-10-17 修订）」。改了什么：新增 `AGENTS.md → ../FullStackEngineerAgent/AGENTS.md`、`.pi → ../FullStackEngineerAgent/.pi` 两条相对软链接并随仓库提交（单独 clone 时链接悬空、无害）。
