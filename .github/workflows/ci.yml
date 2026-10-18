@@ -103,6 +103,9 @@ jobs:
       - name: left new-window flow (stubbed, no GUI)
         run: bash test/left-new-window.test.sh
 
+      - name: left pairing-panel precheck (stubbed, no GUI)
+        run: bash test/left-pairing-panel.test.sh
+
       - name: version consistency (VERSION is the single source of truth)
         run: |
           ver_file=$(cat VERSION)

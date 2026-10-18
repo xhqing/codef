@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 
 - **挂载「Agent 进驻」软链接（2026-10-17 用户修订）**：为什么改——用户 2026-10-17 修订智能体专属文件规则：实体只属负责的 Agent 项目（Atlas / FullStackEngineerAgent），子项目改挂两条指回 Agent 项目的软链接，在子项目目录开会话即继承 Atlas 的身份 / 规则 / 技能；详见全局 `agents-registry.md`「智能体专属文件归属与子项目映射（2026-10-17 修订）」。改了什么：新增 `AGENTS.md → ../FullStackEngineerAgent/AGENTS.md`、`.pi → ../FullStackEngineerAgent/.pi` 两条相对软链接并随仓库提交（单独 clone 时链接悬空、无害）。
 
+### 修复
+
+- **`codef left` 新增「残留配对面板」预检与自动清理**（2026-10-18，issue #24）：为什么改——「全屏幕平铺 → 屏幕左侧」成功后系统会启动「选右半屏伙伴」配对会话（Dock 的 `half-backdrop` 面板）；会话未完成又未取消而残留时，后续所有左半平铺请求被系统静默忽略（菜单 enabled、点击无效果）——即 #24「偶发被系统静默忽略」的确切机制（2026-10-18 实机定位，详见 issue 评论）。改了什么：① left 模式预检阶段（终端全屏预处理与屏幕帧查询之后、`code` 之前）用 CGWindowList（JXA）探测该面板；② 命中则自动发送 Esc 取消残留会话、短暂等待后再探测确认，结果（absent / cleared / clear-failed）记入失败诊断日志（`pairing-panel:` 行）并在失败提示中说明（cleared 提示已自动清除；clear-failed 提示手动 Esc / 点桌面空白后重试）；③ left-new 新窗流程第二遍之前同样预检（日志取最后一次结果）；④ 探测与清理全部 best-effort——探测失败、Esc 失败都不阻塞主流程；⑤ 新增桩驱动回归测试 `test/left-pairing-panel.test.sh`（62 项断言，CI 运行）与 README 中英双版说明。
+
 ## [0.6.0] - 2026-10-16
 
 ### 新增
