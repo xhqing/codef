@@ -90,6 +90,11 @@ case "$joined" in
     ;;
 esac
 
+# 配对面板预检（T14 契约）：既有用例一律视为无面板（no），不触发 Esc。
+case "$joined" in
+  *half-backdrop*) printf 'no\n'; exit 0 ;;
+esac
+
 # 主屏可视区查询（-l JavaScript）。
 case "$joined" in
   *JavaScript*)

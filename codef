@@ -7,6 +7,7 @@
 #                            自己安排；平铺不可用时回退为普通窗口左半屏摆放。
 #                            若运行它的终端窗口处于原生全屏，会先退出终端全屏再执行；
 #                            若同目录已有左半平铺窗口，会另开新窗口接管、不再复用）
+#                            平铺前会自动清理残留的「配对会话」面板（详见流程 1.5）
 #                            `left` 是关键字——要打开名为 left 的目录请写 `codef ./left`
 #       codef --version    （查看当前版本：输出 `codef x.y.z`，版本号与仓库根 VERSION 一致）
 #
@@ -28,6 +29,10 @@
 #      （终端 App 按 TERM_PROGRAM 识别；tmux 下沿已附加客户端的进程链找外层终端；
 #      识别不出时该步静默跳过、不阻塞流程）；
 #   1. 取主屏可视区（NSScreen.visibleFrame），供「平铺就绪检测」与「失败回退摆放」用；
+#   1.5 配对面板预检（2026-10-18 增，issue #24）：探测 Dock 的 half-backdrop 面板
+#      （「全屏幕平铺 → 屏幕左侧」配对会话的残留物，跨 Space 可见）；命中则发送 Esc
+#      取消残留会话、短暂等待后再探测确认；结果 absent / cleared / clear-failed 记入
+#      失败诊断日志（pairing-panel 行）与失败提示（探测与清理均 best-effort、不阻塞）；
 #   然后走 2~5（目标窗口置顶）；第 6 步改为：
 #     若目标窗口已是「左半全屏」→ 另开新窗口接管（issue #28）：在别名根下建
 #     符号链接别名（CODEF_ALIAS_ROOT 可覆盖，默认 ~/Library/Caches/codef/aliases）→
@@ -127,6 +132,48 @@ detect_term_bundle() {
   return 0
 }
 
+# —— left 模式：配对面板（half-backdrop）预检 ——
+# 「全屏幕平铺 → 屏幕左侧」成功后系统会启动一个「选右半屏伙伴」的配对会话（Dock
+# 绘制的 half-backdrop 面板）；会话未完成又未取消而残留时，后续所有左半平铺请求
+# 会被系统静默忽略（菜单 enabled、点击无效果、窗口无变化）——2026-10-18 实机定位
+# （issue #24）。触发前先探测并用 Esc 取消残留会话，避免这种「间歇失灵」。
+# 探测走 CGWindowList（跨 Space 可见）；任何失败都按「未检出」容错、不阻塞主流程。
+pairing_panel_probe() {
+  osascript -l JavaScript -e '
+ObjC.import("CoreGraphics");
+var found = "no";
+var raw = $.CGWindowListCopyWindowInfo(0, 0);
+var n = $.CFArrayGetCount(raw);
+for (var i = 0; i < n; i++) {
+  var w = ObjC.deepUnwrap(ObjC.castRefToObject($.CFArrayGetValueAtIndex(raw, i)));
+  if (w.kCGWindowOwnerName === "Dock" && w.kCGWindowName === "half-backdrop") { found = "yes"; break; }
+}
+found;
+' 2>/dev/null | tr -d '[:space:]' || true
+}
+
+# 预检并（必要时）取消残留配对会话；stdout 输出处理结果（供失败提示与诊断日志）：
+#   absent       —— 未检出面板（含探测失败），未做任何动作
+#   cleared      —— 检出并已取消（Esc 后再探测已消失）
+#   clear-failed —— 检出但 Esc 后仍在（可能在其他 Space，需人工处理）
+clear_stale_pairing_panel() {
+  local p
+  p=$(pairing_panel_probe)
+  if [ "$p" != "yes" ]; then
+    printf 'absent'
+    return 0
+  fi
+  debug "配对面板预检：检出残留面板（Dock half-backdrop），发送 Esc 取消残留配对会话"
+  osascript -e 'tell application "System Events" to key code 53' >/dev/null 2>&1 || true
+  sleep 0.6
+  p=$(pairing_panel_probe)
+  if [ "$p" = "yes" ]; then
+    printf 'clear-failed'
+  else
+    printf 'cleared'
+  fi
+}
+
 # 0) left 模式：若承载本命令的终端窗口处于原生全屏，先退出其全屏
 #    （终端识别不出 / 退出失败时静默跳过——best effort，主流程照常继续）
 if [ "$mode" = "left" ]; then
@@ -213,6 +260,7 @@ fi
 
 # 1) left 模式：取主屏可视区（左半屏位置 / 尺寸，用于平铺就绪检测与失败回退摆放）
 lx=0; ly=0; lw=0; lh=0
+pairing_note="absent"
 if [ "$mode" = "left" ]; then
   frame=$(osascript -l JavaScript -e 'ObjC.import("AppKit"); var f=$.NSScreen.mainScreen.visibleFrame; var g=$.NSScreen.mainScreen.frame; Math.round(f.origin.x)+","+Math.round(g.size.height-f.origin.y-f.size.height)+","+Math.round(f.size.width)+","+Math.round(f.size.height)' 2>/dev/null || true)
   if [ -n "$frame" ]; then
@@ -223,6 +271,9 @@ if [ "$mode" = "left" ]; then
   else
     echo "codef: 无法获取屏幕可视区（left 模式的就绪检测与失败回退将跳过）" >&2
   fi
+  # 配对面板预检：清理残留配对会话（否则后续左半平铺会被系统静默忽略；须在 code 之前）
+  pairing_note=$(clear_stale_pairing_panel)
+  debug "配对面板预检结果：${pairing_note}"
 fi
 
 # 2) 记录打开前的窗口标题（VSCode 未运行时为空）
@@ -641,6 +692,9 @@ end tell
 OSA
 )
     code "$alias_path"
+    # 配对面板预检（新窗流程第二遍之前同样要清理残留会话）
+    pairing_note=$(clear_stale_pairing_panel)
+    debug "配对面板预检结果（新窗流程）：${pairing_note}"
     result=$(main_ascript "$target_name" "$pre_names2" "left-new" "$lx" "$ly" "$lw" "$lh" "${win_name:-}")
     status=$(printf '%s' "$result" | head -1)
     win_name=$(printf '%s' "$result" | tail -n +2 | head -1)
@@ -664,6 +718,7 @@ log_failure() {
   {
     printf '===== %s  codef %s  mode=%s  target=%s =====\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${v:-?}" "$mode" "$target_name"
     printf 'dir: %s\n' "$abs_dir"
+    if [ "$mode" = "left" ]; then printf 'pairing-panel: %s\n' "${pairing_note:-absent}"; fi
     if [ -n "${diag:-}" ]; then printf '%s\n' "$diag"; fi
     printf 'fallback: %s\n' "$fallback_note"
     printf 'status: %s\n\n' "$1"
@@ -721,6 +776,13 @@ OSA
   esac
 }
 
+# 失败提示：按配对面板预检结果补充说明（absent 不加提示）
+pairing_hint=""
+case "$pairing_note" in
+  cleared)      pairing_hint="（提示：检测到并已自动清除残留的配对面板）" ;;
+  clear-failed) pairing_hint="（提示：检测到残留的配对面板且未能自动清除——请按 Esc 或点击桌面空白处后重试）" ;;
+esac
+
 case "$status" in
   splitview-already)
     debug "目标窗口已在左半屏全屏，无需操作"
@@ -738,18 +800,18 @@ case "$status" in
   tile-failed*)
     if [ "$lw" -gt 0 ]; then
       left_fallback
-      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），已回退为普通窗口左半屏摆放；诊断日志：${logfile}" >&2
+      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），已回退为普通窗口左半屏摆放${pairing_hint}；诊断日志：${logfile}" >&2
     else
-      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），且无法获取屏幕可视区，未回退摆放；诊断日志：${logfile}" >&2
+      echo "codef: 左半平铺触发失败（Window → Full Screen Tile 菜单不可用），且无法获取屏幕可视区，未回退摆放${pairing_hint}；诊断日志：${logfile}" >&2
     fi
     log_failure "$status"
     ;;
   tile-not-ready)
     if [ "$lw" -gt 0 ]; then
       left_fallback
-      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），已回退为普通窗口左半屏摆放；诊断日志：${logfile}" >&2
+      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），已回退为普通窗口左半屏摆放${pairing_hint}；诊断日志：${logfile}" >&2
     else
-      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），且无法获取屏幕可视区，未回退摆放；诊断日志：${logfile}" >&2
+      echo "codef: 左半平铺未就绪（窗口未进入左半全屏态），且无法获取屏幕可视区，未回退摆放${pairing_hint}；诊断日志：${logfile}" >&2
     fi
     log_failure "$status"
     ;;
