@@ -9,15 +9,15 @@
 -- 反例：子串形似不得误匹配。
 on run
 	set fixtures to {}
-	set end of fixtures to {"ExecutiveAssistantAgent", "ExecutiveAssistantAgent", true}
-	set end of fixtures to {"voice-script.md — ExecutiveAssistantAgent", "ExecutiveAssistantAgent", true}
-	set end of fixtures to {"ExecutiveAssistantAgent — voice-script.md", "ExecutiveAssistantAgent", true}
-	set end of fixtures to {"voice-script.md – ExecutiveAssistantAgent", "ExecutiveAssistantAgent", true}
-	set end of fixtures to {"voice-script.md - ExecutiveAssistantAgent", "ExecutiveAssistantAgent", true}
-	set end of fixtures to {"● voice-script.md — ExecutiveAssistantAgent", "ExecutiveAssistantAgent", true}
-	set end of fixtures to {"● ExecutiveAssistantAgent", "ExecutiveAssistantAgent", true}
-	set end of fixtures to {"my-ExecutiveAssistantAgent", "ExecutiveAssistantAgent", false}
-	set end of fixtures to {"ExecutiveAssistantAgent-notes — foo", "ExecutiveAssistantAgent", false}
+	set end of fixtures to {"assistant-agent", "assistant-agent", true}
+	set end of fixtures to {"voice-script.md — assistant-agent", "assistant-agent", true}
+	set end of fixtures to {"assistant-agent — voice-script.md", "assistant-agent", true}
+	set end of fixtures to {"voice-script.md – assistant-agent", "assistant-agent", true}
+	set end of fixtures to {"voice-script.md - assistant-agent", "assistant-agent", true}
+	set end of fixtures to {"● voice-script.md — assistant-agent", "assistant-agent", true}
+	set end of fixtures to {"● assistant-agent", "assistant-agent", true}
+	set end of fixtures to {"my-assistant-agent", "assistant-agent", false}
+	set end of fixtures to {"assistant-agent-notes — foo", "assistant-agent", false}
 	set end of fixtures to {"pre-blog — x", "blog", false}
 	set end of fixtures to {"x — blog", "blog", true}
 	set end of fixtures to {"● blog", "blog", true}
