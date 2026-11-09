@@ -1,5 +1,10 @@
 # Changelog
 
+### 变更（测试夹具同步：示例名改为 assistant-agent，2026-11-09）
+
+- **为什么改**：Kit 的 Agent 项目 2026-11-09 按新命名规定更名为 `assistant-agent`（原 `ExecutiveAssistantAgent`）。`test/matches-target.applescript` 用它作窗口标题匹配的测试夹具，示例名应跟着改成新名，避免测试数据继续用已不存在的旧名。
+- **改了什么**：`test/matches-target.applescript` 里 9 处 `ExecutiveAssistantAgent` → `assistant-agent`（正例与反例夹具同步替换，匹配逻辑与预期结果不变）。
+
 All notable changes to this project will be documented in this file.
 
 ## [未发布]
