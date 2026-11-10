@@ -1,12 +1,12 @@
 # codef
 
-> FullStackEngineerAgent（Atlas）名下的子项目 · 本项目规则本体
+> dev-agent（Atlas）名下的子项目 · 本项目规则本体
 
 macOS 终端小工具：全屏打开 VSCode，并保证刚打开的那个窗口在最上层（`code <dir>` + 自动全屏 + 目标窗口置顶）。bash + osascript 实现，单文件、零依赖。
 
 ## 归谁负责
 
-本项目由 **Atlas**（FullStackEngineerAgent）负责维护。改动范围跨出本项目时，先向 Atlas 说明，不自行扩张改动面。
+本项目由 **Atlas**（dev-agent）负责维护。改动范围跨出本项目时，先向 Atlas 说明，不自行扩张改动面。
 
 ## 你的角色
 
